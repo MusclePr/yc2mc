@@ -1,0 +1,54 @@
+services:
+  mc:
+    image: itzg/minecraft-server
+    tty: true
+    stdin_open: true
+    environment:
+      # OS
+      TZ: "Asia/Tokyo"
+      LANG: "ja_JP.UTF-8"
+      LANGUAGE: "ja_JP"
+      # Server
+      EULA: "true"
+      TYPE: "PAPER"
+      # RCON
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: "${RCON_PASSWORD}"
+      RCON_PORT: 25575
+      # server.properties
+      OVERRIDE_SERVER_PROPERTIES: "true"
+      #ERVER_NAME: "test"
+      #MOTD: "test"
+      #MODE: "survival"
+      DIFFICULTY: "normal"
+      ENABLE_WHITELIST: "false"
+      ENFORCE_WHITELIST: "false"
+      MAX_PLAYERS: "100"
+      MAX_WORLD_SIZE: "29999984"
+      ENABLE_COMMAND_BLOCK: "true"
+      FORCE_GAMEMODE: "true"
+      GENERATE_STRUCTURES: "true"
+      HARDCORE: "false"
+      SNOOPER_ENABLED: "false"
+      SPAWN_ANIMALS: "true"
+      SPAWN_MONSTERS: "true"
+      SPAWN_NPCS: "true"
+      SPAWN_PROTECTION: "0"
+      SEED: ""
+      #MODE: "survival"
+      PVP: "true"
+      LEVEL: "world"
+      LEVEL_TYPE: "minecraft:normal"
+      ONLINE_MODE: "false"
+      ALLOW_FLIGHT: "true"
+      ALLOW_NETHER: "true"
+      # Resource Pack
+      RESOURCE_PACK_ENFORCE: "false"
+      RESOURCE_PACK: ""
+      RESOURCE_PACK_SHA1: ""
+      BROADCAST_RCON_TO_OPS: "false"
+      # Auto Pause
+      PAUSE_WHEN_EMPTY_SECONDS: "10"
+      # Setup only
+      SETUP_ONLY: "${SETUP_ONLY:-false}"
+

@@ -1,0 +1,77 @@
+table {
+    border-style: solid;
+    border-color: #333333;
+    border-width: 1px;
+}
+th {
+    border-bottom-style: solid;
+    border-color: #333333;
+    border-width: 1px;
+    padding-top: 0.25em;
+    padding-bottom: 0.25em;
+    padding-left: 1em;
+    padding-right: 1em;
+}
+td {
+    border-bottom-style: solid;
+    border-color: silver;
+    border-width: 0.5px;
+    padding-top: 0.25em;
+    padding-bottom: 0.25em;
+    padding-left: 1em;
+    padding-right: 1em;
+}
+hr {
+    border:2px dashed silver
+}
+.td-selector {
+    text-align: center;
+}
+.td-select {
+    text-align: center;
+}
+.td-select-on {
+    text-align: center;
+    background-color: darkseagreen;
+}
+.td-marker {
+    text-align: center;
+    color: silver;
+}
+.td-small {
+    font-size: small
+}
+.option {
+    color: silver;
+    font-size:xx-small;
+}
+.border-dotted {
+    border-style: dotted;
+    border-color: #333333;
+    border-width: 1px;
+    height: 32px;
+    width: 120px;
+    margin: 0em 0em 1em 1em;
+}
+.border-dashed {
+    border-style: dashed;
+    border-color: #333333;
+    border-width: 1px;
+    height: 32px;
+    width: 120px;
+    margin: 0em 0em 1em 1em;
+}
+.border-solid {
+    border-style: solid;
+    border-color: #333333;
+    border-width: 1px;
+    height: 32px;
+    width: 120px;
+    margin: 0em 0em 1em 1em;
+} 
+.link {
+    text-decoration: none;
+}
+.link:hover {
+    text-decoration: underline;
+}

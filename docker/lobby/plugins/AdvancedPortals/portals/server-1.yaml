@@ -1,0 +1,19 @@
+args:
+  bungee:
+  - server-1
+  name:
+  - server-1
+  destination:
+  - server-1
+  triggerblock:
+  - NETHER_PORTAL
+maxLoc:
+  posX: 3
+  posY: 2
+  posZ: 0
+  worldName: lobby
+minLoc:
+  posX: 1
+  posY: 0
+  posZ: 0
+  worldName: lobby

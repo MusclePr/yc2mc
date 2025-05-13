@@ -1,0 +1,255 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" type="text/css" href="css/style.css">
+<title>ライブ配信管理ページ (${user})</title>
+<script>
+var g_rcon_active = -2;
+var g_live_active = -2;
+var g_live_info = "";
+var g_list = [];
+var g_interval = 0;
+var g_busy = false;
+var g_nextRequest = "";
+var g_timeout = 0;
+
+// クォート文字をエンコード
+function EncodeQuote(str)
+{
+    return str.replace(/['"]/g, function(s) {
+        let n = s.charCodeAt(0);
+        return "%" + n.toString(16);
+    })
+}
+
+// 文字列エンコード（クォートのケア込み）
+function Encode(str)
+{
+    return EncodeQuote(encodeURIComponent(str));
+}
+
+function onLoadResponse()
+{
+    if (g_timeout) {
+        clearTimeout(g_timeout);
+        g_timeout = 0;
+    }
+
+    console.log(this.responseText);
+    let res = JSON.parse(this.responseText);
+    //console.log(res);
+    if (res.aps != undefined) {
+        g_list = res.aps;
+        updateList(res.aps);
+    }
+    if (res.rcon != undefined) {
+        if (g_rcon_active != res.rcon) {
+            g_rcon_active = res.rcon;
+            console.log("rcon:", g_rcon_active);
+            updateRconActive(g_rcon_active);
+        }
+    }
+    if (res.live != undefined) {
+        if (g_live_active != res.live || g_live_info != res.live_info) {
+            g_live_active = res.live;
+            g_live_info = res.live_info == undefined ? '' : res.live_info;
+            console.log("live:", g_live_active);
+            updateLiveActive(g_live_active, g_live_info);
+        }
+    }
+    let e = document.getElementById('start');
+    if (e && e.disabled != false) {
+        e.disabled = false;
+    }
+    e = document.getElementById('add');
+    if (e && e.disabled != false) {
+        e.disabled = false;
+    }
+    e = document.getElementById('clear');
+    if (e && e.disabled != false) {
+        e.disabled = false;
+    }
+    e = document.getElementById('reset');
+    if (e && e.disabled != false) {
+        e.disabled = false;
+    }
+    g_busy = false;
+    if (this.status == 401) {
+        // logout to reload
+        document.location.reload();
+    } else {
+        auto_update();
+    }
+}
+
+function requestTimeout()
+{
+    g_rcon_active = -2; // 不明
+    updateRconActive(g_rcon_active);
+    g_live_active = -2; // 不明
+    g_live_info = "リロードしてください。";
+    updateLiveActive(g_live_active, g_live_info);
+    if (g_timeout) {
+        clearTimeout(g_timeout);
+        g_timeout = 0;
+    }
+}
+
+function requestStart(uri)
+{
+    if (g_busy) return false;
+    g_busy = true;
+    stop_update();
+
+    //console.log(uri);
+    try {
+        let req = new XMLHttpRequest();
+        //req.addEventListener("progress", onProgressResponse);
+        req.addEventListener("load", onLoadResponse);
+        req.open("GET", uri);
+        req.send();
+        g_timeout = setTimeout(requestTimeout, 6000);
+    } catch (e) {
+        console.log(e);
+        requestTimeout();
+        return false;
+    }
+    return true;
+}
+
+var g_old_text = "";
+
+function updateList(aps)
+{
+    let e = document.getElementById("list");
+    if (!e) return;
+    let text = "";
+    text += "<br/><table><thead><tr><th>名前</th><th>プレイヤー名</th><th>メモ</th><th>承諾</th><th>入室</th><th>操作</th></tr></thead><tbody>";
+    for (a of aps) {
+        const unknown = (a.id === "不明なユーザー")
+        const bedrock = (a.id.charAt(0) == '.')
+        let id_label = unknown ? '<font color=red>不明なユーザー</font>' : (bedrock ? a.id : '<a href="https://ja.namemc.com/search?q=' + a.id + '" target="_new">' + a.id + '</a>');
+        const DONE = "<font color=green>済</font>";
+        const YET = "<font color=red>未</font>";
+        text += "<tr><td>" + a.name + "</td><td>" + id_label + "</td><td>" + a.memo + "</td><td>" + (a.accept > 0 ? DONE : YET) + "</td><td>" + (a.nicked ? DONE : YET) + "</td><td><fieldset>";
+        let result = a.memo.match(RegExp("^\\[(OK|NG|ERROR)\\] "));
+        //console.log(result);
+        if (result && result[1] == "OK") {
+            text += "<button onClick=\"if (confirm('承諾したままですが本当に削除しますか？')) { this.parentNode.disabled=true; g_nextRequest = 'delete?name=" + Encode(a.name) + "';}\">削除</button>";
+            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'deny?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "';\">拒否</button>";
+        } else if (result && result[1] == "ERROR") {
+            // [ERROR] の時は削除のみで何も表示しない
+            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'delete?name=" + Encode(a.name) + "';\">削除</button>";
+        } else {
+            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'delete?name=" + Encode(a.name) + "';\">削除</button>";
+            const accept = bedrock ? "承諾(BE)" : "承諾(JE)"
+            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'accept?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "';\">" + accept + "</button>";
+        }
+        text += "</fieldset></td></tr>";
+    }
+    text += "</tbody></table>";
+    if (g_old_text !== text) {
+        g_old_text = text;
+        e.innerHTML = text;
+    }
+}
+
+function updateLiveActive(flag, info)
+{
+    let e = document.getElementById("live");
+    if (e) {
+        let text = "不明";
+        if (flag == 2) text = "<font color=gray>終了</font>";
+        else if (flag == 1) text = "<font color=red>転送中</font>　<button onClick=\"this.disabled=true; requestStart('stop');\">停止</button>";
+        else if (flag == 0) text = "<font color=green>待機</font>";
+        else if (flag == -1) text = "<font color=gray>エラー停止中</font>";
+        e.innerHTML = "ライブ：" + text + "　" + info;
+    }
+}
+
+function updateRconActive(flag)
+{
+    let e = document.getElementById("rcon");
+    if (e) {
+        let text = "不明";
+        if (flag == 2) text = "<font color=green>接続</font>";
+        else if (flag == 1) text = "<font color=yellow>認証中</font>";
+        else if (flag == 0) text = "<font color=gray>切断</font>";
+        e.innerHTML = "サーバー：" + text;
+    }
+}
+
+function update()
+{
+    let uri = 'status';
+    if (g_nextRequest.length > 0) {
+        uri = g_nextRequest;
+        g_nextRequest = "";
+    }
+    requestStart(uri);
+}
+
+function stop_update()
+{
+    if (g_interval) {
+        clearInterval(g_interval);
+        g_interval = 0;
+    }
+}
+
+function auto_update()
+{
+    stop_update();  // 保険
+    g_interval = setInterval(update, 3000);
+}
+
+function logout()
+{
+    requestStart('logout');
+}
+
+</script>
+</head>
+<body onload="auto_update()">
+<table style="border-width: 0">
+    <tr>
+        <th style="border-width: 0; padding: 0; font-size: x-large;">
+            ライブ配信管理ページ
+        </th>
+        <td style="border-width: 0; text-align: right; padding-left: 32px; font-size: x-small;">
+            (login:${user} / <span class="link" onClick="logout()">logout</span>)
+            <a href="https://a-b-c-d.com/mcui/live" target="_help">Help</a>
+        </td>
+    </tr>
+</table>
+<hr/>
+<div xstyle="margin:16pt; padding:8pt; border:2px dotted silver">
+<fieldset>
+    <legend>配信転送サービス</legend>
+    <p id="rcon">サーバー：</p>
+    <p id="live">ライブ：</p>
+    <form style="margin:8pt; padding:8pt; border:2px dotted gray; background-color: #f8f8f8;">
+        <label>ライブID指定：<input type="text" name="live_id" value="" size="16" autocomplete="off">
+            <button id="start" onclick="this.disabled=true; g_nextRequest = 'start?live_id=' + Encode(this.form.live_id.value);">開始</button>
+        <font size="1" color="silver"><br>https://www.youtube.com/watch?v=&lt;ライブID&gt;</font></label>
+    </form>
+</fieldset>
+</div>
+<div xstyle="margin:16pt; padding:8pt; border:2px dotted silver">
+<fieldset>
+    <legend>参加希望者の管理</legend>
+    <form>
+        <label>名前：<input type="text" name="name" value="" size="12" autocomplete="off"></label>
+        <label>ＩＤ：<input type="text" name="id" value="" size="12" autocomplete="off"></label>
+        <label>メモ：<input type="text" name="memo" value="" size="12" autocomplete="off"></label>
+        <button id="add" onclick="g_nextRequest = 'add?name=' + Encode(this.form.name.value) + '&id=' + Encode(this.form.id.value) + '&memo=' + Encode(this.form.memo.value); this.form.name.value = this.form.id.value = this.form.memo.value = ''; this.disabled=true">追加</button>
+        　<button id="clear" onclick="g_nextRequest = 'clear'; this.disabled=true">全削除</button>
+        　<button id="reset" onclick="g_nextRequest = 'reset'; this.disabled=true">全拒否</button>
+    </form>
+    <div id="list" style="margin:0pt; padding:0pt; border:0px">
+    </div>
+</fieldset>
+</div>
+</body>
+</html>
