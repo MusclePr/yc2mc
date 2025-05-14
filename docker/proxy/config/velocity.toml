@@ -87,7 +87,7 @@ try = [
 
 [forced-hosts]
 # Configure your forced hosts here.
-"mc-lobby" = [
+"lobby.example.com" = [
     "lobby"
 ]
 

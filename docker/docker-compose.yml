@@ -1,5 +1,5 @@
 services:
-  proxy:
+  mc-proxy:
     container_name: mc-proxy
     image: itzg/mc-proxy
     ports:
@@ -10,7 +10,7 @@ services:
       MODRINTH_PROJECTS: "viaversion,viabackwards"
       SETUP_ONLY: "${SETUP_ONLY:-false}"
     volumes:
-      - "./proxy/config:/config:ro"
+      - "./proxy/config:/config:ro" # /config/velocity.toml が新しければ /server/velocity.toml に上書きされる
       - "./proxy/data:/server"
 
   mc-lobby:
@@ -19,6 +19,7 @@ services:
       file: mc-common.yml
       service: mc
     environment:
+      VERSION: "1.21.4"
       SERVER_NAME: "lobby"
       MOTD: "Lobby"
       ALLOW_NETHER: "false"
@@ -27,12 +28,11 @@ services:
       LEVEL_TYPE: "minecraft:flat"
       WORLD: "/original/lobby.zip"
       MODRINTH_PROJECTS: "advanced-portals"
+      SPIGET_RESOURCES: "6245,23243"
     volumes:
       - "./lobby/data:/data"
       - "./lobby/plugins:/plugins:ro"
       - "./lobby/lobby.zip:/original/lobby.zip:ro"
-    depends_on:
-      - proxy
 
   mc-server-1:
     container_name: mc-server-1
@@ -47,8 +47,6 @@ services:
       PLUGINS: "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar,https://a-b-c-d.com/downloads/NickAfkPartyPack.jar"
     volumes:
       - "./server-1/data:/data"
-    depends_on:
-      - proxy
 
   ticket:
     container_name: ticket
