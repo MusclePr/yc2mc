@@ -1,15 +1,19 @@
 FROM node:lts-alpine
-RUN apk -U --no-cache add tzdata bash
+# パッケージインストール
+RUN apk -U --no-cache add tzdata bash su-exec
 RUN apk -U --no-cache add docker-cli knock curl jq yq
+# デフォルトのタイムゾーン。ENV定義は、実行時にオーバーライト可能。
 ENV TZ=Asia/Tokyo
-RUN adduser node ping
 WORKDIR /app
-COPY dist/index.js .
-COPY src/assets/ ./assets/
-COPY package.json yarn.lock ./
-COPY node_modules/ ./node_modules/
-COPY youtube-chat-*.tgz .
+COPY --chown=node:node dist/index.js .
+COPY --chown=node:node src/assets/ ./assets/
+COPY --chown=node:node package.json yarn.lock ./
+COPY --chown=node:node node_modules/ ./node_modules/
+COPY --chown=node:node youtube-chat-*.tgz .
+COPY --chown=node:node docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 RUN yarn install --production --frozen-lockfile
 RUN rm youtube-chat-*.tgz
-USER node
-ENTRYPOINT [ "node", "index" ]
+EXPOSE 8080
+VOLUME [ "/config" ]
+ENTRYPOINT [ "/entrypoint.sh", "node", "index" ]

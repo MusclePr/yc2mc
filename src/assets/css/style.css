@@ -75,3 +75,10 @@ hr {
 .link:hover {
     text-decoration: underline;
 }
+.border-box {
+  border-width: 1px;  /* 境界線の太さ (1ピクセル) */
+  border-style: solid; /* 境界線の種類 (実線) */
+  border-color: black; /* 境界線の色 (黒) */
+  padding: 1px;     /* 境界線とテキストの間に余白を入れる (オプション) */
+  display: inline-block; /* 幅と高さを設定できるようにする (オプション) */
+}

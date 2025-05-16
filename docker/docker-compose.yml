@@ -69,14 +69,14 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./server-1/data:/data:ro"
+      - "./server-1/config:/config"
     tty: true
     stdin_open: true
     environment:
       # OS
       TZ: "Asia/Tokyo"
       # YC2MC
-      CHANNEL_ID: "${CHANNEL_ID}"
-      LIVE_ID: "${LIVE_ID}"
+      CHANNEL_URL: "${CHANNEL_URL}"
       RCON_HOST: "mc-server-1"
       RCON_PASSWORD: "${RCON_PASSWORD}"
       RCON_PORT: 25575

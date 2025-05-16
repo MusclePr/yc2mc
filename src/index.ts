@@ -2,19 +2,10 @@
 import { LiveChat } from "youtube-chat"
 import { Rcon } from "rcon-client"
 import Axios from 'axios'
-import dotenv from "dotenv"
 import * as fs from "node:fs"
 import express from "express"
 import basicAuth from "express-basic-auth"
-import { Applicants, ApArray } from "./types/index.d"
-
-// ====================================================================
-// 前提モジュールの初期化
-// ====================================================================
-
-const TMPENV: string = "/var/tmp/.env"
-dotenv.config({ path: TMPENV })
-fs.unlink(TMPENV, (err) => { if (!(err?.errno == -2 && err?.code === 'ENOENT')) console.log(err) })
+import { Applicants, ApArray, LiveStreamConfig, LiveStreamConfigArray, LiveStreamInfo, LiveStreamInfoArray, MinecraftColor } from "./types/index.d"
 
 // ====================================================================
 // 初期定数
@@ -23,8 +14,7 @@ fs.unlink(TMPENV, (err) => { if (!(err?.errno == -2 && err?.code === 'ENOENT')) 
 const HTTP_PORT: number = parseInt(process.env.HTTP_PORT || "8080")
 const MCUI_USERNAME: string = process.env.MCUI_USERNAME || "admin"
 const MCUI_PASSWORD: string = process.env.MCUI_PASSWORD || "39.da#sd-09/jXa"
-const CHANNEL_ID: string = process.env.CHANNEL_ID || ""
-var LIVE_ID: string = process.env.LIVE_ID || ""
+const CHANNEL_URL: string = process.env.CHANNEL_URL || ""
 const RCON_HOST: string = process.env.RCON_HOST || "localhost" //"host.docker.internal"
 const RCON_PORT: number = parseInt(process.env.RCON_PORT || "25575")
 const RCON_PASSWORD: string = process.env.RCON_PASSWORD || "minecraft"
@@ -38,15 +28,15 @@ const MC_CONTAINER : string = process.env.MC_CONTAINER || "yc2mc-mc-1"
 //const MC_LOGIN_BLOCKER : string = process.env.MC_LOGIN_BLOCKER || "true"
 const LIVE_END_TO_CLEAR_ACCEPT : string = process.env.LIVE_END_TO_CLEAR_ACCEPT || "false"
 const TICKET_SERVER : string = process.env.TICKET_SERVER || "ticket:8000"
-const MC_YOUTUBE_NAME_COLOR : string = process.env.MC_YOUTUBE_NAME_COLOR || "gold"
-const SETUP_ONLY: string = process.env.SETUP_ONLY || "false"
+const DEFAULT_MC_COLOR: MinecraftColor = "gold"
+const MC_YOUTUBE_NAME_COLOR : string = process.env.MC_YOUTUBE_NAME_COLOR || DEFAULT_MC_COLOR
 
-if (SETUP_ONLY === "true") {
+if (process.env.SETUP_ONLY === "true") {
   process.exit(0)
 }
 
 // ====================================================================
-// Docker関連のヘルパー関数
+// ヘルパー関数
 // ====================================================================
 
 // child_process の exec を Promise 化
@@ -72,15 +62,31 @@ async function ExecCommand(cmd: string): Promise<string>
   )
 }
 
-var datePrev : Date | null = null
+// AUTO_PAUSE 対策で knock する事によりサーバーを起こす
+var g_datePrev : Date | null = null
 async function KnockServer()
 {
   const timeout : number = 1 * 60 * 1000  // 1分以内に knock してたら何もしない。
   let dateNow = new Date()
-  if (datePrev == null || (dateNow.getTime() - datePrev.getTime()) > timeout) {
-    datePrev = dateNow
+  if (g_datePrev == null || (dateNow.getTime() - g_datePrev.getTime()) > timeout) {
+    g_datePrev = dateNow
     return ExecCommand('knock ' + RCON_HOST + ' 25565') // 注意：サイドコンテナ限定
   }
+}
+
+// sleep関数
+const sleep = (msec: number) => new Promise(resolve => setTimeout(resolve, msec))
+
+function toMinecraftColor(color: string): MinecraftColor {
+  const validColors: MinecraftColor[] = [
+    "black", "dark_blue", "dark_green", "dark_aqua",
+    "dark_red", "dark_purple", "gold", "gray", "dark_gray",
+    "blue", "green", "aqua", "red", "light_purple",
+    "yellow", "white"
+  ];
+
+  return validColors.includes(color as MinecraftColor) || 
+    (color.startsWith("#") && color.length === 7) ? (color as MinecraftColor) : DEFAULT_MC_COLOR;
 }
 
 // ====================================================================
@@ -120,38 +126,19 @@ async function Ticket_getID(key: string) : Promise<string>
   return ""
 }
 
-/*
-function DetectLogin(container: string)
+// ランダムで要素をピックアップ
+function getRandomElement<T>(arr: T[]): T | undefined
 {
-  if (container === "") return
-  console.log("監視対象コンテナ:" + container)
-  let p = childProcess.spawn("docker", ["logs", "--since", "0s", "-f", container])
-  p.on('exit', ()=>{console.log('exit')})
-  p.stdout.setEncoding('utf-8');
-  p.stdout.on('data', (data:string)=>{
-    process.stdout.write(data)
-    if (data.indexOf("logged in with entity id") > 0) {
-      // 特定
-      let result:RegExpMatchArray | null = data.match(RegExp("^\\[.+INFO\\]\: (\\.?\\w+)\\[.+\\] logged in"))
-      console.log("ログイン検出:", result ? result[1] : "IDを抽出できませんでした")
-      // ニックネーム付与
-      let id = result ? result[1] : null
-      if (id) {
-        let i = ApArray_findIndexById(id)
-        if (i >= 0 && aps[i].accept > 0 && !aps[i].nicked) {
-          if (WelcomeNick(id, aps[i].name)) {
-            aps[i].nicked = true
-          }
-        }
-      }
-      //if (MC_LOGIN_BLOCKER === "true") WelcomeCheck()
-    }
-  })
-  p.stderr.on('data', (data:string)=>{
-    process.stderr.write(data)
-  })
+  if (arr.length === 0) return undefined; // 配列が空なら undefined を返す
+  const randomIndex = Math.floor(Math.random() * arr.length);
+  return arr[randomIndex];
 }
-*/
+
+
+// ====================================================================
+// 認証と express の設定
+// ====================================================================
+
 var login_user : string = ''
 
 // express 設定を行う
@@ -178,42 +165,387 @@ app.listen(HTTP_PORT, () => {
   console.log("Youtube to Minecraft Chat サービス起動中");
 })
 
+
+// ====================================================================
+// Rcon の設定
+// ====================================================================
+
 // Rcon クライアント
 const rcon = new Rcon({host: RCON_HOST, port: RCON_PORT, password: RCON_PASSWORD })
-
-// チャンネルIDを指定すれば、自動で配信中のライブIDを指定してくれる
-var liveChat : LiveChat | null = null
-
-// sleep関数
-const sleep = (msec: number) => new Promise(resolve => setTimeout(resolve, msec))
-
-// 終了フラグ
-let doLoop : boolean = true // true=Live接続維持または待機維持
-let doStart : boolean = false // true=Live接続開始
-let doEnd : boolean = false // true=Live接続解除
-let inLive : 0 | 1 | 2 | -1 = 0 // 0=ライブ待ち,1=ライブ中,2=ライブ終了,-1=エラー
 let inRcon : 0 | 1 | 2 = 0 // 0=未接続,1=接続済み,2=認証済み
-let g_live_info : string = "" // Youtube ライブの状況（表示用）
-let g_live_url : string = "" // 最後のライブ配信のURL
-let g_live_title : string = "" // 最後のライブ配信のタイトル
-function MakeLiveAnchor() : string
-{
-  return "<a href='" + g_live_url + "' target=new>" + g_live_title +"</a>"
+let doEnd : boolean = false // true=Live接続解除要求
+
+// ====================================================================
+// ライブの管理
+// ====================================================================
+
+function LiveStreamConfig_load(): Promise<LiveStreamConfigArray> {
+  return new Promise((resolve) => {
+    fs.readFile('/config/config.json', 'utf8', (err, data) => {
+      if (err) {
+        console.log('設定ファイルが見つかりません。デフォルト設定を使用します:', err.message)
+        // デフォルトの空配列を返す
+        resolve([])
+        return
+      }
+
+      try {
+        console.log("---------------------------")
+        console.log(data)
+        console.log("---------------------------")
+        const config: LiveStreamConfigArray = JSON.parse(data)
+        resolve(config)
+      } catch (e) {
+        console.error('設定ファイルの解析に失敗しました:', e)
+        // パース失敗時も空配列を返す
+        console.log("---------------------------")
+        console.log(data)
+        console.log("---------------------------")
+        resolve([])
+      }
+    })
+  })
 }
+
+function LiveStreamConfig_save(config: LiveStreamConfigArray) : Promise<void>
+{
+  return new Promise((resolve, reject) => {
+    fs.writeFile('/config/config.json', JSON.stringify(config, null, 2), (err) => {
+      if (err) {
+        console.error(err)
+        reject(err)
+      } else {
+        resolve()
+      }
+    })
+  })
+}
+
+class LiveStream {
+  public info: LiveStreamInfo
+  protected youtube: LiveChat | null
+
+  constructor() {
+    this.info = {
+      config: { channelUrl: '', color: 'gold' },
+      liveUrl: '',
+      title: '',
+      status: '開始待機',
+      inLive: 0
+    }
+    this.youtube = null
+  }
+
+  setConfig(config: LiveStreamConfig)
+  {
+    this.info.config = config
+  }
+
+  // 監視スタート
+  async start(): Promise<boolean> {
+    if (this.youtube !== null) {
+      this.youtube.stop("restart")
+      this.youtube = null
+    }
+    // channelUrl が youtube.com なら LiveChat を作成
+    let idYoutube: { channelId: string } | { liveId: string } | { handle: string } | null = null
+    const url = new URL(this.info.config.channelUrl)
+    if (url.hostname.endsWith('youtube.com')) {
+      const videoId = url.searchParams.get('v')
+      if (url.pathname.startsWith('/watch') && videoId) {
+        idYoutube = { liveId: videoId }
+      } else if (url.pathname.startsWith('/@')) {
+        idYoutube = { handle: url.pathname.substring(1) }
+      } else if (url.pathname.startsWith('/channel/')) {
+        let result: RegExpMatchArray | null = url.pathname.match(/^\/channel\/([^\/]+)/)
+        if (result && result.length > 1) {
+          idYoutube = { channelId: result[1] }
+        }
+      }
+    }
+    if (idYoutube) {
+      this.info.status = "ライブ確認中"
+      this.youtube = new LiveChat(idYoutube)
+      this.youtube.on("start", (liveId: string) => this.onYoutubeLiveStart(liveId))
+      this.youtube.on("end", (reason?: string) => this.onYoutubeLiveEnd(reason))
+      this.youtube.on("chat", (chat: any) => this.onYoutubeLiveChat(chat))
+      this.youtube.on("error", (error: unknown) => this.onYoutubeLiveError(error))
+      return this.youtube.start()
+    }
+    return false
+  }
+
+  // 監視ストップ
+  stop(reson?: string)
+  {
+    if (this.youtube) {
+      this.youtube.stop(reson)
+      this.youtube = null
+    }
+    this.info.status = reson ?? '停止'
+  }
+
+  makeLiveAnchor() : string
+  {
+    return "<a href='" + this.info.liveUrl + "' target=new>" + this.info.title +"</a>"
+  }
+
+  onYoutubeLiveStart(liveId : string) : void
+  {
+    let live = JSON.parse(liveId)
+    this.info.liveUrl = "https://www.youtube.com/watch?v=" + live.id
+    this.info.title = live.title
+    console.log("<開始> " + live.title)
+    this.info.inLive = 1
+    this.info.status = '転送中'
+    let cmd: string = this.info.config.rconCommands?.onStart ?? RCON_SEND_ON_LIVE_START
+    onStart(cmd)
+  }
+
+  onYoutubeLiveEnd(reason? : string | undefined) : void
+  {
+    console.log("<終了> reason:" + reason)
+    this.info.inLive = 2
+    this.info.status = (reason == undefined ? '' : '：' + reason) + "　" + this.makeLiveAnchor()
+    let cmd: string = this.info.config.rconCommands?.onEnd ?? RCON_SEND_ON_LIVE_END
+    onEnd(cmd)
+  }
+
+  onYoutubeLiveChat(c : any) : void
+  {
+    let text = ""
+    c.message.forEach(function(e : any) {
+      if ( typeof(e) === "object" && 'text' in e) {
+        text += e.text
+      }
+    })
+    onChat(c.author.name, text, this.info.config.color)
+    onChatCheck(c.author.name, text)
+  }
+
+  onYoutubeLiveError(err : unknown) : void
+  {
+    this.info.inLive = -1
+    if (Axios.isAxiosError(err) && err.response) {
+      if (err.response.status == 503) {
+        this.info.inLive = 0
+        console.log("!!! Youtube Server BUSY !!!")
+        this.stop("Youtube Server BUSY")
+        this.start()  // 再接続
+        return
+      } else if (err.response.status == 400) {
+        console.log("!!! Bad Request, ライブ終了済みかも !!!")
+        this.stop("終了？")
+      } else {
+        console.log(err.response)
+        this.stop("HTTP Error:" + err.response.status)
+      }
+    } else if (err instanceof Error) {
+      console.log(err.message)
+      let result : RegExpMatchArray | null = err.message.match(/^Live Stream was finished\.\s*(.*)/)
+      if (result) {
+        this.info.inLive = 2
+        this.stop("終了済")
+        if (LIVE_END_TO_CLEAR_ACCEPT === "true") ApArray_allKick()
+        return
+      } else if (err.message.match(/^Live Stream was not found/)) {
+        this.stop("予定なし")
+      } else {
+        this.info.status = "Error:" + err.message
+      }
+    } else {
+      console.log(err)
+      this.info.status = "Error: Internal"
+    }
+    onError()
+  }
+}
+
+// ライブ配信マネージャーは、複数のライブ配信を管理します
+class LiveStreamManager
+{
+  public lives: Array<LiveStream>
+
+  constructor()
+  {
+    this.lives = []
+  }
+
+  // 破棄
+  destory()
+  {
+    for (let i = 0; i < this.lives.length; i++) {
+      this.lives[i].stop()
+    }
+    this.lives = []
+  }
+
+  // 読み込み
+  async load() {
+    // 一旦空にしてから、ロードする
+    this.destory()
+    let configs = await LiveStreamConfig_load()
+    for (let i = 0; i < configs.length; i++) {
+      this.add(configs[i])
+    }
+    // ロードするものが何もなければ、環境変数で規定されていたやつを設定して開始する
+    if (configs.length == 0) {
+      let live = new LiveStream()
+      live.setConfig({
+        channelUrl: CHANNEL_URL,
+        color: toMinecraftColor(MC_YOUTUBE_NAME_COLOR)
+      })
+      this.lives.push(live)
+      this.save() // 次回のために保存しておく
+    }
+  }
+
+  // 保存
+  async save() {
+    let configs: LiveStreamConfigArray = []
+    for (let i = 0; i < this.lives.length; i++) {
+      configs[i] = this.lives[i].info.config
+    }
+    return LiveStreamConfig_save(configs)
+  }
+
+  // ライブの情報リストを得る
+  getLiveInfoList() {
+    let live_info_list: LiveStreamInfoArray = []
+    for (let i = 0; i < this.lives.length; i++) {
+      live_info_list.push(this.lives[i].info)
+    }
+    return live_info_list
+  }
+
+  // チャンネルURLからインデックスを取得
+  findIndex(url: string)
+  {
+    for (let i = 0; i < this.lives.length; i++) {
+      if (this.lives[i].info.config.channelUrl === url) {
+        return i
+      }
+    }
+    return -1
+  }
+
+  // 未使用のカラーを得る
+  findOtherColor(color?: MinecraftColor) : MinecraftColor
+  {
+    // 希望するカラーが#で始まる色指定なら、そのまま返す
+    if (color !== undefined && color.startsWith("#")) {
+      return color
+    }
+    // 候補リスト
+    let validColors: MinecraftColor[] = [
+      "black", "dark_blue", "dark_green", "dark_aqua",
+      "dark_red", "dark_purple", "gold", "gray", "dark_gray",
+      "blue", "green", "aqua", "red", "light_purple",
+      "yellow", "white"
+    ];
+    // 使用中の色は候補リストから除去
+    for (let i = 0; i < this.lives.length; i++) {
+      const config = this.lives[i].info.config
+      if (config.color) {
+        let j = validColors.indexOf(config.color)
+        if (j > 0) {
+          validColors.splice(j, 1)
+        }
+      }
+    }
+    // 希望するカラーが残っていたら、それを返す
+    if (color !== undefined && validColors.includes(color)) {
+      return color
+    }
+    // 残っている色があれば、ランダムで返す
+    let result: MinecraftColor | undefined = getRandomElement(validColors)
+    if (result !== undefined) {
+      return result
+    }
+    // 無ければランダムの色を生成する
+    let rgb: string = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")
+    return `#${rgb}`
+  }
+
+  // 監視チャンネルを追加
+  add(config: LiveStreamConfig)
+  {
+    if (!config.color) config.color = this.findOtherColor()
+    let i = this.findIndex(config.channelUrl)
+    if (i < 0) {
+      // 既存のURLと一致しなければ、末尾に追加する
+      let live = new LiveStream()
+      live.setConfig(config)
+      this.lives.push(live)
+    } else {
+      // 一致する場合は、設定を更新する
+      this.lives[i].setConfig(config);
+    }
+    this.save()
+  }
+
+  async start(url: string)
+  {
+    let i = this.findIndex(url)
+    if (i >= 0) {
+      return this.lives[i].start()
+    }
+    return false
+  }
+
+  async stop(url: string)
+  {
+    let i = this.findIndex(url)
+    if (i >= 0) {
+      return this.lives[i].stop()
+    }
+    return false
+  }
+
+  async remove(url: string)
+  {
+    let i = this.findIndex(url)
+    if (i >= 0) {
+      this.lives[i].stop()
+      this.lives.splice(i, 1)
+      this.save()
+      return true
+    }
+    return false
+  }
+
+
+  startAll()
+  {
+    this.lives.forEach(live => {
+      live.start()
+    });
+  }
+
+}
+
+let g_liveManager = new LiveStreamManager()
+
+// ====================================================================
+// 参加希望者リストの管理
+// ====================================================================
 
 // 参加希望者リスト
 let aps : ApArray = new Array<Applicants>
 
+// 名前からインデックスを得る
 function ApArray_findIndex(name: string) : number
 {
   return aps.findIndex(function(value: Applicants, index: number, obj: Applicants[]): boolean { return (value.name === name) }, name)
 }
 
+// IDからインデックスを得る
 function ApArray_findIndexById(id: string) : number
 {
   return aps.findIndex(function(value: Applicants, index: number, obj: Applicants[]): boolean { return (value.id === id) }, id)
 }
 
+// 末尾に追加する
 function ApArray_add(a : Applicants) : void
 {
   if (a.id.length == 0 || a.name.length == 0 || !a.id.match(/[0-9A-Za-z._]+/)) {
@@ -233,6 +565,7 @@ function ApArray_add(a : Applicants) : void
   }
 }
 
+// 名前から削除する
 function ApArray_delete(name: string) : boolean
 {
   let idx : number = ApArray_findIndex(name)
@@ -243,42 +576,14 @@ function ApArray_delete(name: string) : boolean
   return false
 }
 
+// 参加希望者リストを空にする
 function ApArray_clear() : void
 {
   aps = []
 }
 
-/*
-function WelcomeInit()
-{
-  if (rcon && inRcon > 1) {
-    KnockServer()
-    // ゲームから抜ける度にインクリメントされる joinGame 値を宣言
-    rcon.send('scoreboard objectives add joinGame minecraft.custom:minecraft.leave_game')
-  }
-}
-
-function WelcomeCheck()
-{
-  if (rcon && inRcon > 1) {
-    KnockServer()
-    // すべてのプレイヤーの joinGame に 0 を加える事で、新規参加者に、joinGame 値を持たせる
-    rcon.send('scoreboard players add @a joinGame 0').then((result:string)=>{
-      if (result.startsWith("Unknown scoreboard objective")) WelcomeInit() // ２回目から有効
-    })
-    // 現時点で、joinGame が 0 のプレイヤー（初参加者）を強制 KICK します。サーバーから落とされた事で、joinGame が 1 になります
-    rcon.send('kick @a[scores={joinGame=0}] 配信の概要欄を良く読んで、事前に承諾をもらってください。２度目はBANです。')
-    // 現時点で、joinGame が 1 のプレイヤー（２回目の参加者）を強制 BAN します。サーバーから落とされた事で、joinGame が 2 になります
-    rcon.send('ban @a[scores={joinGame=1}] 承諾が得られませんでした。')
-    // 現時点で、joinGame が 0 のプレイヤー（初参加者）を 1 に変更します（意味がないので、削除していいかも。要確認。）
-    rcon.send('scoreboard players set @a[scores={joinGame=0}] joinGame 1')
-    // 現時点で、joinGame が 3 以上のプレイヤー（初参加者）を 2 に戻します
-    rcon.send('scoreboard players set @a[scores={joinGame=3..}] joinGame 2')
-  }
-}
-*/
-
-function WelcomeClear()
+// 承認した人を全員サーバーからキックし、参加希望者リストを空にする
+function ApArray_allKick()
 {
   if (rcon && inRcon > 1) {
     KnockServer()
@@ -354,7 +659,7 @@ function filterPlayerID(str: string) {
   return Zenkaku2Hankaku(str).replace(/[^A-Za-z0-9._]/ug, "") // 英数字・ピリオド・アンダーバー以外は除去
 }
 
-function WelcomeNick(id: string, nick: string) : boolean
+function SetNickName(id: string, nick: string) : boolean
 {
   if (rcon && inRcon > 1) {
     KnockServer()
@@ -384,8 +689,12 @@ function WelcomeNick(id: string, nick: string) : boolean
   return false
 }
 
+// ====================================================================
+// 配信転送の管理
+// ====================================================================
+
 // 転送開始時
-function onStart()
+function onStart(cmd: string)
 {
   console.log('onStart()')
   if (rcon && inRcon > 1) {
@@ -393,15 +702,15 @@ function onStart()
     rcon.send('title @a subtitle "開始"')
     rcon.send('title @a title "配信コメント転送"')
     rcon.send('tellraw @a {"text":"<配信コメント転送開始>","color":"red"}')
-    if (RCON_SEND_ON_LIVE_START !== "") {
-      rcon.send(RCON_SEND_ON_LIVE_START)
-      console.log("RCON_SEND_ON_LIVE_START: " + RCON_SEND_ON_LIVE_START)
+    if (cmd !== "") {
+      rcon.send(cmd)
+      console.log("RCON_SEND_ON_LIVE_START: " + cmd)
     }
   }
 }
 
 // 転送終了時
-function onEnd()
+function onEnd(cmd: string)
 {
   console.log('onEnd()')
   if (rcon && inRcon > 1) {
@@ -409,9 +718,9 @@ function onEnd()
     rcon.send('title @a subtitle "終了"')
     rcon.send('title @a title "配信コメント転送"')
     rcon.send('tellraw @a {"text":"<配信コメント転送終了>","color":"red"}')
-    if (RCON_SEND_ON_LIVE_END !== "") {
-      rcon.send(RCON_SEND_ON_LIVE_END)
-      console.log("RCON_SEND_ON_LIVE_END: " + RCON_SEND_ON_LIVE_END)
+    if (cmd !== undefined) {
+      rcon.send(cmd)
+      console.log("RCON_SEND_ON_LIVE_END: " + cmd)
     }
   }
 }
@@ -429,13 +738,14 @@ function onError()
 }
 
 // チャットの転送
-function onChat(name: string, text: string)
+function onChat(name: string, text: string, color?: MinecraftColor)
 {
   if (rcon && inRcon > 1) {
     KnockServer()
     var id = JSON.stringify('<' + name + '> ')
     var msg = JSON.stringify(text)
-    const cmd : string = 'tellraw @a ["",{"color":"' + MC_YOUTUBE_NAME_COLOR + '","text":' + id + '},{"color":"white","text":' + msg + '}]'
+    if (!color) color = DEFAULT_MC_COLOR
+    const cmd : string = 'tellraw @a ["",{"color":"' + color + '","text":' + id + '},{"color":"white","text":' + msg + '}]'
     rcon.send(cmd)
   }
   const param : string = '<' + name + '> ' + text
@@ -477,6 +787,10 @@ function onChatCheck(name: string, text: string)
   }
 }
 
+// ====================================================================
+// RCon の管理
+// ====================================================================
+
 rcon.on("connect", () => {
   console.log("<rcon> connected")
   inRcon = 1
@@ -490,136 +804,63 @@ rcon.on("authenticated", () => {
 rcon.on("end", () => {
   console.log("<rcon> end")
   inRcon = 0
-  if (doLoop) {
-    doEnd = true
-  }
+  doEnd = true
 })
 
 rcon.on("error", () => {
   console.log("<rcon> error")
   inRcon = 0
-  if (doLoop) {
-    doEnd = true
-  }
+  doEnd = true
 })
 
+// ====================================================================
+// Web API の管理
+// ====================================================================
 
-
-function onLiveStart(liveId : string) : void
+function normalizeUrl(url: string)
 {
-  /* Your code here! */
-  let live = JSON.parse(liveId)
-  g_live_url = "https://www.youtube.com/watch?v=" + live.id
-  g_live_title = live.title
-  console.log("<開始> " + live.title)
-  g_live_info = MakeLiveAnchor()
-  inLive = 1
-  onStart()
+  return new URL(url, "https://youtube.com/").toString()
 }
-
-function onLiveEnd(reason? : string | undefined) : void
-{
-  /* Your code here! */
-  if (doStart) return // 再接続要求中のため終了処理は行わない
-  console.log("<終了> reason:" + reason)
-  inLive = 2
-  g_live_info = (reason == undefined ? '' : '：' + reason) + "　" + MakeLiveAnchor()
-  doEnd = true
-  onEnd()
-}
-
-function onLiveChat(c : any) : void
-{
-  /* Your code here! */
-  let text = ""
-  c.message.forEach(function(e : any) {
-    if ( typeof(e) === "object" && 'text' in e) {
-      text += e.text
-    }
-  })
-  onChat(c.author.name, text)
-  onChatCheck(c.author.name, text)
-}
-
-function onLiveError(err : unknown) : void
-{
-  /* Your code here! */
-  inLive = -1
-  if (Axios.isAxiosError(err) && err.response) {
-    if (err.response.status == 503) {
-      inLive = 0
-      console.log("!!! Youtube Server BUSY !!!")
-      g_live_info = "Youtube Server BUSY"
-      if (liveChat) {
-        liveChat.stop(g_live_info)
-        liveChat = null
-      }
-      doStart = true	// 再接続要求
-      return
-    } else {
-      console.log(err.response)
-      g_live_info = "HTTP Error:" + err.response.status
-    }
-  } else if (err instanceof Error) {
-    console.log(err.message)
-    let result : RegExpMatchArray | null = err.message.match(/^Live Stream was finished\.\s*(.*)/)
-    if (result) {
-      const reason : string = result.length > 1 ? result[1] : ''
-      inLive = 2
-      g_live_info = "<a href='" + g_live_url + "' target=new>ライブ</a>は終了しました (" + reason + ")"
-      if (LIVE_END_TO_CLEAR_ACCEPT === "true") WelcomeClear()
-      doEnd = true
-      return
-    } else {
-      g_live_info = "Error:" + err.message
-    }
-  } else {
-    console.log(err)
-    g_live_info = "Error: Internal"
-  }
-  onError()
-}
-
-function installEmitter(lc : LiveChat) : void
-{
-  // Emit at start of observation chat.
-  // liveId: string
-  lc.on("start", onLiveStart)
-
-  // Emit at end of observation chat.
-  // reason: string?
-  lc.on("end", onLiveEnd)
-
-  // Emit at receive chat.
-  // chat: ChatItem
-  lc.on("chat", onLiveChat)
-
-  // Emit when an error occurs
-  // err: Error or any
-  lc.on("error", onLiveError)
-}
-
 
 //GETリクエストの設定
 //'/'でアクセスされた時に、JSONとログを出力するようにする
 app.get('/start', (req : express.Request, res : express.Response) => {
   console.log('startのGETリクエストを受け取りました')
-  if (req.query && req.query.live_id != undefined && typeof(req.query.live_id) === 'string') {
-    LIVE_ID = req.query.live_id // ライブID指定 (?live_id=xxxxxxxxxx)
+  if (req.query?.url && typeof(req.query.url) === 'string') {
+    let url = normalizeUrl(req.query.url);
+    if (req.query?.color && typeof(req.query.color) === 'string' && req.query.color.length > 0) {
+      let color = toMinecraftColor(req.query.color);
+      g_liveManager.add({ channelUrl: url, color: color })
+    } else {
+      g_liveManager.add({ channelUrl: url })
+    }
+    g_liveManager.start(url)
   }
-  g_live_info = "ライブ確認中" + (LIVE_ID.length > 0 ? "：" + LIVE_ID : "")
-  console.log(g_live_info)
-  res.json({ "request": "start", "rcon": inRcon, "live": inLive, "live_info": g_live_info})
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "start", "rcon": inRcon, "live_info_list": live_info_list})
   res.end()
-  doStart = true
 })
 
 app.get('/stop', (req : express.Request, res : express.Response) => {
   console.log('stopのGETリクエストを受け取りました')
-  g_live_info = "停止中"
-  res.json({ "request": "stop", "rcon": inRcon, "live": inLive, "live_info": g_live_info})
+  if (req.query?.url && typeof(req.query.url) === 'string') {
+    let url = normalizeUrl(req.query.url);
+    g_liveManager.stop(url)
+  }
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "start", "rcon": inRcon, "live_info_list": live_info_list})
   res.end()
-  doEnd = true
+})
+
+app.get('/remove', (req : express.Request, res : express.Response) => {
+  console.log('removeのGETリクエストを受け取りました')
+  if (req.query?.url && typeof(req.query.url) === 'string') {
+    let url = normalizeUrl(req.query.url);
+    g_liveManager.remove(url)
+  }
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "start", "rcon": inRcon, "live_info_list": live_info_list})
+  res.end()
 })
 
 app.get('/status', (req : express.Request, res : express.Response) => {
@@ -628,6 +869,7 @@ app.get('/status', (req : express.Request, res : express.Response) => {
       if (!aps[i].nicked) {
         // 未ログイン
         const id: string = aps[i].id.replace(/^\./, "__bedrock__")
+        if (id === KEYWORD_FAILED) continue
         const cmd: string = "yq '.players." + id + ".flag' /data/plugins/NickAfkPartyPack/nicknames.yml"
         console.log(cmd)
         ExecCommand(cmd).then((flag : string) => {
@@ -648,7 +890,8 @@ app.get('/status', (req : express.Request, res : express.Response) => {
     console.log(e)
   }
 
-  res.json({ "request": "status", "rcon": inRcon, "live": inLive, "live_info": g_live_info, "aps": aps })
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "status", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
   //console.log('statusのGETリクエストを受け取りました')
   res.end()
   //WelcomeCheck() // 定期的にログインチェックする
@@ -657,7 +900,8 @@ app.get('/status', (req : express.Request, res : express.Response) => {
 app.get('/clear', (req : express.Request, res : express.Response) => {
   console.log('clearのGETリクエストを受け取りました')
   ApArray_clear() // 参加希望者リストを空にする
-  res.json({ "request": "clear", "rcon": inRcon, "live": inLive, "live_info": g_live_info, "aps": aps })
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "clear", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
   res.end()
 })
 
@@ -675,7 +919,8 @@ app.get('/reset', (req : express.Request, res : express.Response) => {
       rcon.send('kick ' + aps[i].id + ' すべての参加申請をリセットしました。')
     }
   }
-  res.json({ "request": "reset", "rcon": inRcon, "live": inLive, "live_info": g_live_info, "aps": aps })
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "reset", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
   res.end()
 })
 
@@ -691,7 +936,8 @@ app.get('/add', (req : express.Request, res : express.Response) => {
   }
   let a : Applicants = {id: filterPlayerID(id), name: name, memo: memo, accept: 0, nicked: false}
   ApArray_add(a)
-  res.json({ "request": "add", "rcon": inRcon, "live": inLive, "live_info": g_live_info, "aps": aps })
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "add", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
   res.end()
 })
 
@@ -729,7 +975,8 @@ app.get('/delete', (req : express.Request, res : express.Response) => {
       result = ApArray_delete(name)
     }
   }
-  res.json({ "request": "delete", "rcon": inRcon, "live": inLive, "live_info": g_live_info, "result": result, "aps": aps })
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "delete", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
   res.end()
 })
 
@@ -758,10 +1005,11 @@ app.get('/accept', (req : express.Request, res : express.Response) => {
       console.log(cmd2)
       rcon.send(cmd2)
       */
-      result = WelcomeNick(id, aps[idx].name)
+      result = SetNickName(id, aps[idx].name)
     }
   }
-  res.json({ "request": "accept", "rcon": inRcon, "live": inLive, "live_info": g_live_info, "result": result, "aps": aps })
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "accept", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
   res.end()
 })
 
@@ -793,7 +1041,8 @@ app.get('/deny', (req : express.Request, res : express.Response) => {
       result = true
     }
   }
-  res.json({ "request": "deny", "rcon": inRcon, "live": inLive, "live_info": g_live_info, "result": result, "aps": aps })
+  let live_info_list = g_liveManager.getLiveInfoList()
+  res.json({ "request": "deny", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
   res.end()
 })
 
@@ -811,12 +1060,15 @@ app.get('/', (req : express.Request, res : express.Response) => {
   res.end()
 })
 
+// ====================================================================
+// メインループ内のループ処理
+// ====================================================================
+
 async function loop(bAutoStart : boolean)
 {
   console.log("yc2mc service start")
-  doLoop = true
-  doStart = bAutoStart  // 自動開始
   doEnd = false
+  await g_liveManager.load()
 
   // サーバーがRcon接続が完了するまで接続を繰り返し待つ
   inRcon = 0
@@ -844,27 +1096,9 @@ async function loop(bAutoStart : boolean)
     await sleep(1000)
   }
 
-  if (!doStart) console.log("開始待機")
-  while (doLoop) {
-    if (doStart) {
-      doStart = false
-      if (liveChat) {
-        liveChat.stop("開始要求を受け取りました。")
-        await sleep(1000)
-      }
-      liveChat = new LiveChat(LIVE_ID ? {liveId: LIVE_ID} : ( CHANNEL_ID.startsWith("@") ? {handle: CHANNEL_ID} : {channelId: CHANNEL_ID}))
-      if (liveChat) {
-        installEmitter(liveChat)
-        liveChat.start()
-      }
-    } else if (doEnd) {
-      doEnd = false
-      if (liveChat) {
-        liveChat.stop("終了要求を受け取りました。")
-        liveChat = null
-      }
-      doLoop = false
-    }
+  if (bAutoStart) g_liveManager.startAll()
+  while (!doEnd) {
+    doEnd = false
     await sleep(1000)
   }
 
@@ -877,6 +1111,10 @@ async function loop(bAutoStart : boolean)
   //process.exit()
 }
 
+// ====================================================================
+// 安全に終了させる処理
+// ====================================================================
+
 var bMainLoop: boolean = true
 
 async function closeGracefully(signal : string)
@@ -885,10 +1123,8 @@ async function closeGracefully(signal : string)
 
   try {
     bMainLoop = false
-    if (liveChat) {
-      liveChat.stop("Close Gracefully")
-      liveChat = null
-    }
+    g_liveManager.destory()
+
     if (rcon.socket && !rcon.socket.connecting && rcon.socket.writable) {
       await KnockServer()
       await rcon.end() // AUTOPAUSE時にタイムアウトエラーが発生する
@@ -900,6 +1136,10 @@ async function closeGracefully(signal : string)
 }
 process.on('SIGINT', closeGracefully)
 process.on('SIGTERM', closeGracefully)
+
+// ====================================================================
+// メイン処理
+// ====================================================================
 
 var bAutoStart : boolean = true
 

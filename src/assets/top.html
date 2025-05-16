@@ -6,13 +6,33 @@
 <title>ライブ配信管理ページ (${user})</title>
 <script>
 var g_rcon_active = -2;
-var g_live_active = -2;
-var g_live_info = "";
+var g_live_info_list = [];
 var g_list = [];
 var g_interval = 0;
 var g_busy = false;
 var g_nextRequest = "";
 var g_timeout = 0;
+
+const mc_colors = {
+    black: "black", // #000000
+    dark_blue: "#0000AA", // #0000AA
+    dark_green: "#00AA00", // #00AA00
+    dark_aqua: "#00AAAA", // #00AAAA
+    dark_red: "#AA0000", // #AA0000
+    dark_purple: "#AA00AA", // #AA00AA
+    gold: "#FFAA00", // #FFAA00
+    gray: "#AAAAAA", // #AAAAAA
+    dark_gray: "#555555", // #555555
+    blue: "#5555FF", // #5555FF
+    green: "#55FF55", // #55FF55
+    aqua: "#55FFFF", // #55FFFF
+    red: "#FF5555", // #FF5555
+    light_purple: "#FF55FF", // #FF55FF
+    yellow: "#FFFF55", // #FFFF55
+    white: "white" // #FFFFFF
+};
+
+const disable_controllers = [ 'start', 'name', 'id', 'memo', 'add', 'clear', 'reset' ];
 
 // クォート文字をエンコード
 function EncodeQuote(str)
@@ -36,9 +56,13 @@ function onLoadResponse()
         g_timeout = 0;
     }
 
-    console.log(this.responseText);
+    //console.log(this.responseText);
     let res = JSON.parse(this.responseText);
     //console.log(res);
+    if (res.live_info_list != undefined) {
+        g_live_info_list = res.live_info_list;
+        updateLiveInfoList(g_live_info_list);
+    }
     if (res.aps != undefined) {
         g_list = res.aps;
         updateList(res.aps);
@@ -46,34 +70,19 @@ function onLoadResponse()
     if (res.rcon != undefined) {
         if (g_rcon_active != res.rcon) {
             g_rcon_active = res.rcon;
-            console.log("rcon:", g_rcon_active);
+            //console.log("rcon:", g_rcon_active);
             updateRconActive(g_rcon_active);
+            updateLiveActive(g_rcon_active);
         }
     }
-    if (res.live != undefined) {
-        if (g_live_active != res.live || g_live_info != res.live_info) {
-            g_live_active = res.live;
-            g_live_info = res.live_info == undefined ? '' : res.live_info;
-            console.log("live:", g_live_active);
-            updateLiveActive(g_live_active, g_live_info);
+    
+    disable_controllers.forEach((id) => {
+        let e = document.getElementById(id);
+        if (e && e.disabled != false) {
+            e.disabled = false;
         }
-    }
-    let e = document.getElementById('start');
-    if (e && e.disabled != false) {
-        e.disabled = false;
-    }
-    e = document.getElementById('add');
-    if (e && e.disabled != false) {
-        e.disabled = false;
-    }
-    e = document.getElementById('clear');
-    if (e && e.disabled != false) {
-        e.disabled = false;
-    }
-    e = document.getElementById('reset');
-    if (e && e.disabled != false) {
-        e.disabled = false;
-    }
+    })
+
     g_busy = false;
     if (this.status == 401) {
         // logout to reload
@@ -87,9 +96,7 @@ function requestTimeout()
 {
     g_rcon_active = -2; // 不明
     updateRconActive(g_rcon_active);
-    g_live_active = -2; // 不明
-    g_live_info = "リロードしてください。";
-    updateLiveActive(g_live_active, g_live_info);
+    updateLiveActive(-2, "リロードしてください。");
     if (g_timeout) {
         clearTimeout(g_timeout);
         g_timeout = 0;
@@ -155,16 +162,90 @@ function updateList(aps)
     }
 }
 
-function updateLiveActive(flag, info)
+function setURL(channelUrl)
 {
-    let e = document.getElementById("live");
-    if (e) {
-        let text = "不明";
-        if (flag == 2) text = "<font color=gray>終了</font>";
-        else if (flag == 1) text = "<font color=red>転送中</font>　<button onClick=\"this.disabled=true; requestStart('stop');\">停止</button>";
-        else if (flag == 0) text = "<font color=green>待機</font>";
-        else if (flag == -1) text = "<font color=gray>エラー停止中</font>";
-        e.innerHTML = "ライブ：" + text + "　" + info;
+    let e = document.getElementById('url');
+    if (e) e.value = channelUrl;
+}
+
+function getChannelAnchor(channelUrl, active)
+{
+    if (!channelUrl) return '(不明)';
+    let platform = '[不明]'
+    let title = channelUrl;
+    const url = new URL(channelUrl)
+    if (url?.hostname?.match(/youtube/)) {
+        platform = '<image src="images/youtube_social_icon_' + (active ? 'red' : 'dark') + '.png" alt="Youtube">';
+        let pathname = url.pathname?.startsWith('/') ? url.pathname.substring(1) : '(不明)'
+        if (pathname === 'watch') {
+            title = 'ライブ配信'
+        } else {
+            title = pathname
+        }
+    }
+    return '<a href="' + channelUrl + '" target="_new">' + platform + '</a>　<span onClick="setURL(\'' + channelUrl + '\')">' + title + '</span>';
+}
+
+g_old_live_info_list_text = ""
+
+function makeColorBox(color)
+{
+    return '<span class="border-box" style="background-color:' + mc_colors[color] + '; width:16px; height:16px;"></span>';
+}
+
+function validateUrl(url)
+{
+    return url.match(/^https:\/\/.*youtube\.com\//) ? true : false;
+}
+
+function updateLiveInfoList(live_info_list)
+{
+    let e = document.getElementById("live_info_list");
+    if (!e || g_rcon_active != 2) return;
+    let text = "";
+    text += "<table>\n";
+    text += "<thead><tr><th>操作</th><th>状態</th><th>色</th><th>チャンネル</th></tr></thead>\n";
+    text += '<tfoot><form><tr><td>';
+    text += '<button id="start" onclick="';
+    text += "let url = document.getElementById('url').value;";
+    text += "let color = document.getElementById('color').value;";
+    text += "if (!validateUrl(url)) { alert('無効なURLです'); return }";
+    text += "this.disabled = true;";
+    text += "g_nextRequest = 'start?url=' + Encode(url) + (color ? '&color=' + Encode(color) : '');";
+    text += '">追加</button>';
+    text += '</td><td></td><td align="center">';
+    text += '<span id="sample_color">自動</span><br>';
+    text += '<select id="color" name="color" onChange="document.getElementById(\'sample_color\').innerHTML = this.value ? makeColorBox(this.value) : \'自動\';">';
+    text += '<option value=""></option>';
+    for (const key in mc_colors) {
+        text += '<option value="' + key + '">' + key + '</option>';
+    }
+    text += '</select>';
+    text += '</td><td>';
+    text += '<label>URL:<br><input id="url" type="text" name="url" value="" size="48" autocomplete="off">';
+    text += "</td></tr></form></tfoot>";
+
+    text += "<tbody>\n";
+    for (live of live_info_list) {
+        let channel_anchor = getChannelAnchor(live.config.channelUrl, live.inLive == 1);
+        let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_new">' + live.title + '</a>' : '';
+        let color = live.config.color ? makeColorBox(live.config.color) : '-';
+        let controls = "<button onClick=\"if (confirm('削除しますか？')) { this.disabled=true; g_nextRequest = 'remove?url=" + live.config.channelUrl + "';}\">削除</button>";
+        switch (live.inLive) {
+            case 1: // 1=ライブ中
+                controls += "<button onClick=\"this.disabled=true; g_nextRequest = 'stop?url=" + live.config.channelUrl + "';\">停止</button>";
+                break;
+            default: // -1=エラー, 0=ライブ待ち, 2=ライブ終了
+                let busy = (live.status === 'ライブ確認中') ? " disabled" : "";
+                controls += "<button" + busy + " onClick=\"this.disabled=true; g_nextRequest = 'start?url=" + live.config.channelUrl + "';\">開始</button>";
+                break;
+        }
+        text += '<tr><td align="center">' + controls + '</td><td align="center">' + live.status + '</td><td align="center" valign="middle">' + color + '</td><td>' + channel_anchor + '<br>' + live_anchor + "</td></tr>\n";
+    }
+    text += "</tbody></table>\n";
+    if (g_old_live_info_list_text !== text) {
+        g_old_live_info_list_text = text;
+        e.innerHTML = text;
     }
 }
 
@@ -174,9 +255,22 @@ function updateRconActive(flag)
     if (e) {
         let text = "不明";
         if (flag == 2) text = "<font color=green>接続</font>";
-        else if (flag == 1) text = "<font color=yellow>認証中</font>";
+        else if (flag == 1) text = "<font color=gold>認証中</font>";
         else if (flag == 0) text = "<font color=gray>切断</font>";
         e.innerHTML = "サーバー：" + text;
+    }
+    // すべてのコントローラを無効状態にする
+    if (flag != 2) document.querySelectorAll("input, button, select").forEach(e => { e.disabled = true; });
+}
+
+function updateLiveActive(flag, forceText)
+{
+    let e = document.getElementById("live");
+    if (e) {
+        let text = "不明";
+        if (flag == 2) text = "";
+        else if (flag <= 1) text = "<font color=gray>起動待ち</font>";
+        e.innerHTML = "ライブ：" + (forceText?.length > 0 ? forceText : text);
     }
 }
 
@@ -229,20 +323,17 @@ function logout()
     <legend>配信転送サービス</legend>
     <p id="rcon">サーバー：</p>
     <p id="live">ライブ：</p>
-    <form style="margin:8pt; padding:8pt; border:2px dotted gray; background-color: #f8f8f8;">
-        <label>ライブID指定：<input type="text" name="live_id" value="" size="16" autocomplete="off">
-            <button id="start" onclick="this.disabled=true; g_nextRequest = 'start?live_id=' + Encode(this.form.live_id.value);">開始</button>
-        <font size="1" color="silver"><br>https://www.youtube.com/watch?v=&lt;ライブID&gt;</font></label>
-    </form>
+    <div id="live_info_list" style="margin:0pt; padding:0pt; border:0px">
+    </div>
 </fieldset>
 </div>
 <div xstyle="margin:16pt; padding:8pt; border:2px dotted silver">
 <fieldset>
     <legend>参加希望者の管理</legend>
     <form>
-        <label>名前：<input type="text" name="name" value="" size="12" autocomplete="off"></label>
-        <label>ＩＤ：<input type="text" name="id" value="" size="12" autocomplete="off"></label>
-        <label>メモ：<input type="text" name="memo" value="" size="12" autocomplete="off"></label>
+        <label>名前：<input type="text" id="name" name="name" value="" size="12" autocomplete="off"></label>
+        <label>ＩＤ：<input type="text" id="id"   name="id"   value="" size="12" autocomplete="off"></label>
+        <label>メモ：<input type="text" id="memo" name="memo" value="" size="12" autocomplete="off"></label>
         <button id="add" onclick="g_nextRequest = 'add?name=' + Encode(this.form.name.value) + '&id=' + Encode(this.form.id.value) + '&memo=' + Encode(this.form.memo.value); this.form.name.value = this.form.id.value = this.form.memo.value = ''; this.disabled=true">追加</button>
         　<button id="clear" onclick="g_nextRequest = 'clear'; this.disabled=true">全削除</button>
         　<button id="reset" onclick="g_nextRequest = 'reset'; this.disabled=true">全拒否</button>

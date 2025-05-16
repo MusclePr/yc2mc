@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node src/index.js",
+    "start": "tsc; (cd docker; ./run.sh --build)",
     "start:debug": "node --inspect-brk=0.0.0.0:9229 index.js"
   },
   "author": "MusclePr",
