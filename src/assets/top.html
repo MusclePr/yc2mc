@@ -61,7 +61,7 @@ function onLoadResponse()
     //console.log(res);
     if (res.live_info_list != undefined) {
         g_live_info_list = res.live_info_list;
-        updateLiveInfoList(g_live_info_list);
+        updateLiveInfoList(res.live_info_list);
     }
     if (res.aps != undefined) {
         g_list = res.aps;
@@ -76,12 +76,14 @@ function onLoadResponse()
         }
     }
     
-    disable_controllers.forEach((id) => {
-        let e = document.getElementById(id);
-        if (e && e.disabled != false) {
-            e.disabled = false;
-        }
-    })
+    if (g_rcon_active == 2) {
+        disable_controllers.forEach((id) => {
+            let e = document.getElementById(id);
+            if (e && e.disabled != false) {
+                e.disabled = false;
+            }
+        })
+    }
 
     g_busy = false;
     if (this.status == 401) {
@@ -201,7 +203,7 @@ function validateUrl(url)
 function updateLiveInfoList(live_info_list)
 {
     let e = document.getElementById("live_info_list");
-    if (!e || g_rcon_active != 2) return;
+    if (!e) return;
     let text = "";
     text += "<table>\n";
     text += "<thead><tr><th>操作</th><th>状態</th><th>色</th><th>チャンネル</th></tr></thead>\n";
@@ -227,17 +229,18 @@ function updateLiveInfoList(live_info_list)
 
     text += "<tbody>\n";
     for (live of live_info_list) {
+        const channelUrl = Encode(live.config.channelUrl);
         let channel_anchor = getChannelAnchor(live.config.channelUrl, live.inLive == 1);
         let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_new">' + live.title + '</a>' : '';
         let color = live.config.color ? makeColorBox(live.config.color) : '-';
-        let controls = "<button onClick=\"if (confirm('削除しますか？')) { this.disabled=true; g_nextRequest = 'remove?url=" + live.config.channelUrl + "';}\">削除</button>";
+        let controls = "<button onClick=\"if (confirm('削除しますか？')) { this.disabled=true; g_nextRequest = 'remove?url=" + channelUrl + "';}\">削除</button>";
         switch (live.inLive) {
             case 1: // 1=ライブ中
-                controls += "<button onClick=\"this.disabled=true; g_nextRequest = 'stop?url=" + live.config.channelUrl + "';\">停止</button>";
+                controls += "<button onClick=\"this.disabled=true; g_nextRequest = 'stop?url=" + channelUrl + "';\">停止</button>";
                 break;
             default: // -1=エラー, 0=ライブ待ち, 2=ライブ終了
                 let busy = (live.status === 'ライブ確認中') ? " disabled" : "";
-                controls += "<button" + busy + " onClick=\"this.disabled=true; g_nextRequest = 'start?url=" + live.config.channelUrl + "';\">開始</button>";
+                controls += "<button" + busy + " onClick=\"this.disabled=true; g_nextRequest = 'start?url=" + channelUrl + "&color=" + live.config.color + "';\">開始</button>";
                 break;
         }
         text += '<tr><td align="center">' + controls + '</td><td align="center">' + live.status + '</td><td align="center" valign="middle">' + color + '</td><td>' + channel_anchor + '<br>' + live_anchor + "</td></tr>\n";

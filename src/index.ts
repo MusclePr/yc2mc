@@ -350,6 +350,8 @@ class LiveStream {
         return
       } else if (err.message.match(/^Live Stream was not found/)) {
         this.stop("予定なし")
+      } else if (err.message.match(/^Client Version was not found/)) {
+        this.stop("失敗？")
       } else {
         this.info.status = "Error:" + err.message
       }
