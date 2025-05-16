@@ -69,16 +69,16 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./server-1/data:/data:ro"
-      - "./server-1/config:/config"
+      - "./server-1/live:/config"
     tty: true
     stdin_open: true
     environment:
       # OS
       TZ: "Asia/Tokyo"
       # YC2MC
-      CHANNEL_URL: "${CHANNEL_URL}"
+      CHANNEL_URL: "${CHANNEL_URL:-https://youtube.com/@MusclePr}"
       RCON_HOST: "mc-server-1"
-      RCON_PASSWORD: "${RCON_PASSWORD}"
+      RCON_PASSWORD: "${RCON_PASSWORD:-AdminPassword}"
       RCON_PORT: 25575
       TICKET_SERVER: "ticket:8000"
       MC_YOUTUBE_NAME_COLOR: "blue"

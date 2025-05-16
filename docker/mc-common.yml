@@ -13,7 +13,7 @@ services:
       TYPE: "PAPER"
       # RCON
       ENABLE_RCON: "true"
-      RCON_PASSWORD: "${RCON_PASSWORD}"
+      RCON_PASSWORD: "${RCON_PASSWORD:-AdminPassword}"
       RCON_PORT: 25575
       # server.properties
       OVERRIDE_SERVER_PROPERTIES: "true"

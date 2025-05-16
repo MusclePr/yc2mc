@@ -10,9 +10,11 @@ Youtube のライブ配信チャットを Minecraft サーバーのゲーム内�
 - チャットの Minecraft サーバーへの転送 
 - 参加希望者の管理
   - 参加希望コメントの検出
-  - プレイヤー名の管理
-  - ニックネームの自動設定
-- Web UI による管理
+  - チケットサーバー連携による ID 解決
+  - ニックネームプラグイン連携によるニックネームの割り当て
+- Web UI による管理（非モダンのため、フレームワークに入れ替え予定）
+  - 複数のチャンネル管理
+  - チャンネル単位に文字色設定あり
   - ライブ配信の監視開始/停止
   - 参加希望者の承認/拒否
   - 参加希望者リストの管理
@@ -37,11 +39,13 @@ git clone https://github.com/MusclePr/yc2mc
 yarn install
 
 # ビルド
-yarn build
+yarn run build
 
-# Docker イメージをビルド
+# Docker 環境の初期化
 cd docker
-./publish.sh
+./init.sh clean
+./init.sh setup
+
 ```
 
 ## 設定
@@ -50,26 +54,26 @@ cd docker
 
 ```yml
 environment:
-  # Youtube Channel ID または @handle
-  CHANNEL_ID: "@username"
-  
   # Minecraft サーバー接続設定  
   RCON_HOST: "mc"
   RCON_PORT: 25575
-  RCON_PASSWORD: "minecraft"
-  
-  # その他設定
-  MC_YOUTUBE_NAME_COLOR: "blue" # Youtube名の表示色
+  RCON_PASSWORD: "AdminPassword"
 ```
 
 ## 起動
 
 ```sh
 cd docker
-./up.sh
+./run.sh
 ```
 
 Web UI: http://localhost:8080
+
+## ビルド＆起動
+
+```sh
+yarn run start
+```
 
 ## 作者
 

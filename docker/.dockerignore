@@ -1,7 +1,0 @@
-.*
-build.sh
-docker-compose.yml
-Dockerfile
-init.sh
-mc-common.yml
-run.sh

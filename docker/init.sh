@@ -40,6 +40,13 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# openssl のインストール確認
+openssl --version > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "openssl is not installed. Please install openssl."
+    exit 1
+fi
+
 # data ディレクトリが１つでも無い場合は、初回セットアップとして作成します。
 if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d server-1/data ]; then
     # SETUP_ONLY=true で、必要な設定ファイルだけ作成して終了させます。
