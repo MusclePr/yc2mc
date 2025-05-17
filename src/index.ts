@@ -1,5 +1,6 @@
 // Youtube to Minecraft Chat
-import { LiveChat } from "youtube-chat"
+import { LiveChat as YoutubeChat } from "youtube-chat"
+import { TwitchChat, TwitchToken } from "twitch-chat"
 import { Rcon } from "rcon-client"
 import Axios from 'axios'
 import * as fs from "node:fs"
@@ -30,6 +31,9 @@ const LIVE_END_TO_CLEAR_ACCEPT : string = process.env.LIVE_END_TO_CLEAR_ACCEPT |
 const TICKET_SERVER : string = process.env.TICKET_SERVER || "ticket:8000"
 const DEFAULT_MC_COLOR: MinecraftColor = "gold"
 const MC_YOUTUBE_NAME_COLOR : string = process.env.MC_YOUTUBE_NAME_COLOR || DEFAULT_MC_COLOR
+// twitch-chat のクライアントIDとシークレット
+const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || 'ids1p64r28f77znlfway7vz7j6xfev';
+const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'qzw78q5id4u1rmkqb81w7xjgjenn93';
 
 if (process.env.SETUP_ONLY === "true") {
   process.exit(0)
@@ -221,11 +225,11 @@ function LiveStreamConfig_save(config: LiveStreamConfigArray) : Promise<void>
   })
 }
 
-class LiveStream {
+abstract class LiveStream {
   public info: LiveStreamInfo
-  protected youtube: LiveChat | null
 
-  constructor() {
+  constructor()
+  {
     this.info = {
       config: { channelUrl: '', color: 'gold' },
       liveUrl: '',
@@ -233,7 +237,6 @@ class LiveStream {
       status: '開始待機',
       inLive: 0
     }
-    this.youtube = null
   }
 
   setConfig(config: LiveStreamConfig)
@@ -241,31 +244,48 @@ class LiveStream {
     this.info.config = config
   }
 
+  makeLiveAnchor() : string
+  {
+    return "<a href='" + this.info.liveUrl + "' target=new>" + this.info.title +"</a>"
+  }
+
   // 監視スタート
-  async start(): Promise<boolean> {
-    if (this.youtube !== null) {
-      this.youtube.stop("restart")
-      this.youtube = null
-    }
-    // channelUrl が youtube.com なら LiveChat を作成
+  abstract start(): Promise<boolean>
+  // 監視ストップ
+  abstract stop(reson?: string): void
+
+}
+
+class YoutubeLiveStream extends LiveStream {
+  protected youtube: YoutubeChat | null
+
+  constructor()
+  {
+    super()
+    this.youtube = null
+  }
+
+  // 監視スタート
+  async start(): Promise<boolean>
+  {
+    this.stop('開始')
+    // YoutubeChat を作成
     let idYoutube: { channelId: string } | { liveId: string } | { handle: string } | null = null
     const url = new URL(this.info.config.channelUrl)
-    if (url.hostname.endsWith('youtube.com')) {
-      const videoId = url.searchParams.get('v')
-      if (url.pathname.startsWith('/watch') && videoId) {
-        idYoutube = { liveId: videoId }
-      } else if (url.pathname.startsWith('/@')) {
-        idYoutube = { handle: url.pathname.substring(1) }
-      } else if (url.pathname.startsWith('/channel/')) {
-        let result: RegExpMatchArray | null = url.pathname.match(/^\/channel\/([^\/]+)/)
-        if (result && result.length > 1) {
-          idYoutube = { channelId: result[1] }
-        }
+    const videoId = url.searchParams.get('v')
+    if (url.pathname.startsWith('/watch') && videoId) {
+      idYoutube = { liveId: videoId }
+    } else if (url.pathname.startsWith('/@')) {
+      idYoutube = { handle: url.pathname.substring(1) }
+    } else if (url.pathname.startsWith('/channel/')) {
+      let result: RegExpMatchArray | null = url.pathname.match(/^\/channel\/([^\/]+)/)
+      if (result && result.length > 1) {
+        idYoutube = { channelId: result[1] }
       }
     }
     if (idYoutube) {
       this.info.status = "ライブ確認中"
-      this.youtube = new LiveChat(idYoutube)
+      this.youtube = new YoutubeChat(idYoutube)
       this.youtube.on("start", (liveId: string) => this.onYoutubeLiveStart(liveId))
       this.youtube.on("end", (reason?: string) => this.onYoutubeLiveEnd(reason))
       this.youtube.on("chat", (chat: any) => this.onYoutubeLiveChat(chat))
@@ -276,18 +296,13 @@ class LiveStream {
   }
 
   // 監視ストップ
-  stop(reson?: string)
+  stop(reason?: string)
   {
     if (this.youtube) {
-      this.youtube.stop(reson)
+      this.youtube.stop(reason)
       this.youtube = null
     }
-    this.info.status = reson ?? '停止'
-  }
-
-  makeLiveAnchor() : string
-  {
-    return "<a href='" + this.info.liveUrl + "' target=new>" + this.info.title +"</a>"
+    this.info.status = reason ?? '停止'
   }
 
   onYoutubeLiveStart(liveId : string) : void
@@ -363,6 +378,110 @@ class LiveStream {
   }
 }
 
+// このアプリ内で共通の TwitchToken を作成
+const g_twitchToken = new TwitchToken(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+
+class TwitchLiveStream extends LiveStream {
+  protected twitch: TwitchChat | null
+
+  constructor()
+  {
+    super()
+    this.twitch = null
+  }
+
+  // 監視スタート
+  async start(): Promise<boolean>
+  {
+    this.stop('開始')
+    // TwitchChat を作成
+    const url = new URL(this.info.config.channelUrl)
+    const name = url.pathname.split('/')[1]
+    this.twitch = new TwitchChat(name, g_twitchToken)
+    if (this.twitch) {
+      this.info.status = "ライブ確認中"
+      this.twitch.on("connected", (title: string) => this.onTwitchLiveStart(title))
+      this.twitch.on("disconnected", (reason: string) => this.onTwitchLiveEnd(reason))
+      this.twitch.on('message', (username: string, displayName: string, message: string) => this.onTwitchLiveChat(username, displayName, message))
+      this.twitch.on("error", (error: string) => this.onTwitchLiveError(error))
+      return this.twitch.connect()
+    }
+    return false
+  }
+
+  // 監視ストップ
+  stop(reason?: string)
+  {
+    if (this.twitch) {
+      this.twitch.disconnect()
+      this.twitch = null
+    }
+    this.info.status = reason ?? '停止'
+  }
+
+  onTwitchLiveStart(title: string) : void
+  {
+    this.info.liveUrl = this.info.config.channelUrl + '/live'
+    this.info.title = title
+    console.log("<開始> " + title)
+    this.info.inLive = 1
+    this.info.status = '転送中'
+    let cmd: string = this.info.config.rconCommands?.onStart ?? RCON_SEND_ON_LIVE_START
+    onStart(cmd)
+  }
+
+  onTwitchLiveEnd(reason: string) : void
+  {
+    console.log("<終了>")
+    this.info.inLive = 2
+    this.info.status = "　" + this.makeLiveAnchor()
+    let cmd: string = this.info.config.rconCommands?.onEnd ?? RCON_SEND_ON_LIVE_END
+    onEnd(cmd)
+  }
+
+  onTwitchLiveChat(username: string, displayName: string, message: string) : void
+  {
+    onChat(displayName, message, this.info.config.color)
+    onChatCheck(displayName, message)
+  }
+
+  onTwitchLiveError(err: string) : void
+  {
+    this.info.inLive = -1
+    if (err.match(/tmi\.twitch\.tv\/connect/)) {
+      this.info.inLive = 0
+      console.log("!!! Twitch Server BUSY !!!")
+      this.stop("Twitch Server BUSY")
+      this.start()  // 再接続
+      return
+    } else if (err.match(/No live stream/)) {
+      this.stop("予定なし")
+    } else {
+      console.log(err)
+      this.info.status = "Error: Internal"
+    }
+    onError()
+  }
+  
+}
+
+function LiveStreamFactory(config: LiveStreamConfig): LiveStream | null
+{
+  let live: LiveStream | null = null
+  let url = normalizeUrl(config.channelUrl)
+  if (url.hostname.match(/twitch\.tv/)) {
+    const name = url.pathname.split('/')[1]
+    if (name.length > 0) {
+      live = new TwitchLiveStream()
+      live.setConfig(config)
+    }
+  } else {
+    live = new YoutubeLiveStream()
+    live.setConfig(config)
+  }
+  return live
+}
+
 // ライブ配信マネージャーは、複数のライブ配信を管理します
 class LiveStreamManager
 {
@@ -392,12 +511,13 @@ class LiveStreamManager
     }
     // ロードするものが何もなければ、環境変数で規定されていたやつを設定して開始する
     if (configs.length == 0) {
-      let live = new LiveStream()
-      live.setConfig({
+      let live = LiveStreamFactory({
         channelUrl: CHANNEL_URL,
         color: toMinecraftColor(MC_YOUTUBE_NAME_COLOR)
       })
-      this.lives.push(live)
+      if (live) {
+        this.lives.push(live)
+      }
       this.save() // 次回のために保存しておく
     }
   }
@@ -476,9 +596,10 @@ class LiveStreamManager
     let i = this.findIndex(config.channelUrl)
     if (i < 0) {
       // 既存のURLと一致しなければ、末尾に追加する
-      let live = new LiveStream()
-      live.setConfig(config)
-      this.lives.push(live)
+      let live = LiveStreamFactory(config)  // ← LiveStreamFactory を使用
+      if (live) {
+        this.lives.push(live)
+      }
     } else {
       // 一致する場合は、設定を更新する
       this.lives[i].setConfig(config);
@@ -488,8 +609,11 @@ class LiveStreamManager
 
   async start(url: string)
   {
+    console.log(`LiveStreamManager.start(${url})`)
+
     let i = this.findIndex(url)
     if (i >= 0) {
+      console.log(`found index: ${i} with start`)
       return this.lives[i].start()
     }
     return false
@@ -519,7 +643,9 @@ class LiveStreamManager
 
   startAll()
   {
+    console.log("LiveStreamManager.startAll()")
     this.lives.forEach(live => {
+      console.log(typeof live + " " + live.info.config.channelUrl)      
       live.start()
     });
   }
@@ -819,19 +945,23 @@ rcon.on("error", () => {
 // Web API の管理
 // ====================================================================
 
-function normalizeUrl(url: string)
+function normalizeUrl(url: string): URL
 {
-  return new URL(url, "https://youtube.com/").toString()
+  return new URL(url, "https://youtube.com/")
 }
 
 //GETリクエストの設定
 //'/'でアクセスされた時に、JSONとログを出力するようにする
 app.get('/start', (req : express.Request, res : express.Response) => {
   console.log('startのGETリクエストを受け取りました')
-  if (req.query?.url && typeof(req.query.url) === 'string') {
-    let url = normalizeUrl(req.query.url);
-    if (req.query?.color && typeof(req.query.color) === 'string' && req.query.color.length > 0) {
-      let color = toMinecraftColor(req.query.color);
+  const params = new URLSearchParams(req.query as any)
+  console.log(params.toString())
+  if (params.has('url')) {
+    let url = normalizeUrl(params.get('url')!).toString()
+    console.log(`url: ${url}`)
+    if (params.has('color')) {
+      let color = toMinecraftColor(params.get('color')!)
+      console.log(`color: ${color}`)
       g_liveManager.add({ channelUrl: url, color: color })
     } else {
       g_liveManager.add({ channelUrl: url })
@@ -846,7 +976,7 @@ app.get('/start', (req : express.Request, res : express.Response) => {
 app.get('/stop', (req : express.Request, res : express.Response) => {
   console.log('stopのGETリクエストを受け取りました')
   if (req.query?.url && typeof(req.query.url) === 'string') {
-    let url = normalizeUrl(req.query.url);
+    let url = normalizeUrl(req.query.url).toString()
     g_liveManager.stop(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()
@@ -857,7 +987,7 @@ app.get('/stop', (req : express.Request, res : express.Response) => {
 app.get('/remove', (req : express.Request, res : express.Response) => {
   console.log('removeのGETリクエストを受け取りました')
   if (req.query?.url && typeof(req.query.url) === 'string') {
-    let url = normalizeUrl(req.query.url);
+    let url = normalizeUrl(req.query.url).toString()
     g_liveManager.remove(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()

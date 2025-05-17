@@ -41,7 +41,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # openssl のインストール確認
-openssl --version > /dev/null 2>&1
+openssl version > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo "openssl is not installed. Please install openssl."
     exit 1

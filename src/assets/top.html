@@ -184,6 +184,9 @@ function getChannelAnchor(channelUrl, active)
         } else {
             title = pathname
         }
+    } else if (url?.hostname?.match(/twitch\.tv/)) {
+        platform = '<image src="images/glitch_flat_' + (active ? 'purple' : 'gray') + '.png" alt="Twitch">';
+        title = url.pathname?.split('/')[1] ?? '(不明)'
     }
     return '<a href="' + channelUrl + '" target="_new">' + platform + '</a>　<span onClick="setURL(\'' + channelUrl + '\')">' + title + '</span>';
 }
@@ -197,7 +200,7 @@ function makeColorBox(color)
 
 function validateUrl(url)
 {
-    return url.match(/^https:\/\/.*youtube\.com\//) ? true : false;
+    return url.match(/^https:\/\/.*(youtube\.com|twitch\.tv)\//) ? true : false;
 }
 
 function updateLiveInfoList(live_info_list)
