@@ -1,13 +1,9 @@
 services:
   mc:
-    image: itzg/minecraft-server
+    image: MusclePr/minecraft-server
     tty: true
     stdin_open: true
     environment:
-      # OS
-      TZ: "Asia/Tokyo"
-      LANG: "ja_JP.UTF-8"
-      LANGUAGE: "ja_JP"
       # Server
       EULA: "true"
       TYPE: "PAPER"

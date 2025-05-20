@@ -1,25 +1,31 @@
 FROM node:lts-alpine
 # パッケージインストール
-RUN apk -U --no-cache add tzdata bash su-exec
+RUN apk -U --no-cache add tzdata musl-locales bash su-exec
 RUN apk -U --no-cache add docker-cli knock curl jq yq
-# デフォルトのタイムゾーン。ENV定義は、実行時にオーバーライト可能。
+# dockerグループ(GID:999)として、nodeユーザーを追加 (alpineのGID:999は、pingグループ)
+RUN adduser node ping
+ARG DEBUG
+ENV DEBUG=${DEBUG:-""}
 ENV TZ=Asia/Tokyo
+ENV LANG=ja_JP.UTF-8
+ENV LC_ALL=ja_JP.UTF-8
 ENV NODE_OPTIONS=--no-deprecation
 WORKDIR /app
 
-COPY --chown=node:node package.json ./
-COPY --chown=node:node youtube-chat-v2.2.0.tgz ./
-COPY --chown=node:node twitch-chat-v1.0.0.tgz ./
+COPY dist/index.js .
+COPY src/assets/ ./assets/
+COPY package.json ./
+COPY youtube-chat-v2.2.0.tgz ./
+COPY twitch-chat-v1.0.0.tgz ./
 RUN yarn install --production
-RUN rm youtube-chat-*.tgz twitch-chat-*.tgz
 RUN yarn cache clean
+RUN rm -f package.json yarn.lock
 
-COPY --chown=node:node dist/index.js .
-COPY --chown=node:node src/assets/ ./assets/
-
-COPY --chown=node:node docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY docker/assets/entrypoint.sh .
+RUN chmod +x ./entrypoint.sh
 
 EXPOSE 8080
 VOLUME [ "/config" ]
-ENTRYPOINT [ "/entrypoint.sh", "node", "index" ]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["node", "index"]
+HEALTHCHECK --interval=10s --timeout=1s --start-period=5s --retries=3 CMD [ "nc", "-z" , "localhost", "8080" ]

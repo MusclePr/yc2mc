@@ -1,88 +1,118 @@
+# ネットワーク：mc-clustor
+# サーバーを追加する場合、このネットワーク内に入れると良い
+# 例）
+#networks:
+#  mc-clustor:
+#    external: true
+#
+#services:
+#  my-service:
+#    image: my-image
+#    networks:
+#      - mc-clustor
+# 
+networks:
+  default:
+    name: mc-clustor
+
 services:
+  # プロキシーサーバー
   mc-proxy:
     container_name: mc-proxy
-    image: itzg/mc-proxy
+    image: MusclePr/mc-proxy
     ports:
       - 25565:25565
     environment:
       TYPE: "VELOCITY"
-      MINECRAFT_VERSION: "1.21.5"
-      MODRINTH_PROJECTS: "viaversion,viabackwards"
-      SETUP_ONLY: "${SETUP_ONLY:-false}"
     volumes:
-      - "./proxy/config:/config:ro" # /config/velocity.toml が新しければ /server/velocity.toml に上書きされる
       - "./proxy/data:/server"
+      - "./assets/proxy/plugins:/plugins:ro"
 
+  # ロビーサーバー
   mc-lobby:
     container_name: mc-lobby
     extends:
       file: mc-common.yml
       service: mc
     environment:
-      VERSION: "1.21.4"
       SERVER_NAME: "lobby"
-      MOTD: "Lobby"
+      MOTD: "Lobby Server"
       ALLOW_NETHER: "false"
       MODE: "creative"
       LEVEL: "lobby"
       LEVEL_TYPE: "minecraft:flat"
       WORLD: "/original/lobby.zip"
-      MODRINTH_PROJECTS: "advanced-portals"
-      SPIGET_RESOURCES: "6245,23243"
     volumes:
       - "./lobby/data:/data"
-      - "./lobby/plugins:/plugins:ro"
-      - "./lobby/lobby.zip:/original/lobby.zip:ro"
+      - "./assets/lobby/plugins:/plugins:ro"
+      - "./assets/lobby/lobby.zip:/original/lobby.zip:ro"
 
-  mc-server-1:
-    container_name: mc-server-1
+  # サーバー1
+  mc-server1:
+    container_name: mc-${SERVER1}
     extends:
       file: mc-common.yml
       service: mc
     environment:
-      VERSION: "1.21.4"  # ProtocolLib not yet support 1.21.5
-      SERVER_NAME: "server-1"
-      MOTD: "Server 1"
+      SERVER_NAME: "${SERVER1}"
+      MOTD: "${SERVER1} Server"
       MODE: "survival"
-      PLUGINS: "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar,https://a-b-c-d.com/downloads/NickAfkPartyPack.jar"
     volumes:
-      - "./server-1/data:/data"
+      - "./${SERVER1}/data:/data"
+      - "./assets/${SERVER1}/plugins:/plugins:ro"
 
-  ticket:
-    container_name: ticket
+  # チケットサービス
+  mc-lobby-ticket:
+    container_name: mc-lobby-ticket
     image: MusclePr/ticket:latest
     volumes:
-      - ./lobby/data/usercache.json:/data/usercache.json:ro
-    environment:
-      SETUP_ONLY: "${SETUP_ONLY:-false}"
+      - ./lobby/data:/data:ro
     depends_on:
       - mc-lobby
 
-  yc2mc:
-    container_name: yc2mc-server-1
+  # 配信支援サービス
+  mc-server1-live:
+    container_name: mc-${SERVER1}-live
     image: MusclePr/yc2mc:latest
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
     ports:
-     - 8080:8080
+     - 8081:8080
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
-      - "./server-1/data:/data:ro"
-      - "./server-1/live:/config"
+      - "./${SERVER1}/data:/data:ro"
+      - "./${SERVER1}/live:/config"
     tty: true
     stdin_open: true
     environment:
-      # OS
-      TZ: "Asia/Tokyo"
       # YC2MC
-      CHANNEL_URL: "${CHANNEL_URL:-https://youtube.com/@MusclePr}"
-      RCON_HOST: "mc-server-1"
-      RCON_PASSWORD: "${RCON_PASSWORD:-AdminPassword}"
+      CHANNEL_URL: "${SERVER1_CHANNEL_URL}"
+      MCUI_USERNAME: "${SERVER1_MCUI_USERNAME}"
+      MCUI_PASSWORD: "${SERVER1_MCUI_PASSWORD}"
+      RCON_HOST: "mc-${SERVER1}"
+      RCON_PASSWORD: "${SERVER1_RCON_PASSWORD}"
       RCON_PORT: 25575
-      TICKET_SERVER: "ticket:8000"
-      MC_YOUTUBE_NAME_COLOR: "blue"
-      SETUP_ONLY: "${SETUP_ONLY:-false}"
+      TICKET_SERVER: "mc-lobby-ticket:8000"
     depends_on:
-      - mc-server-1
-      - ticket
+      - mc-server1
+      - mc-lobby-ticket
+  
+  mc-server1-ui:
+    container_name: mc-${SERVER1}-ui
+    image: MusclePr/mcui
+    ports:
+      - 8080:8080
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./${SERVER1}/data:/data"
+    tty: true
+    stdin_open: true
+    environment:
+      # RCON
+      RCON_HOST: mc-${SERVER1}
+      RCON_PASSWORD: "${SERVER1_RCON_PASSWORD}"
+      RCON_PORT: 25575
+      # user[0]
+      MCUI_USERNAME: "${SERVER1_MCUI_USERNAME}"
+      MCUI_PASSWORD: "${SERVER1_MCUI_PASSWORD}"
+      YC2MC_CONTAINER: mc-${SERVER1}-live
+      YC2MC_URL: "http://localhost:8081/"
+

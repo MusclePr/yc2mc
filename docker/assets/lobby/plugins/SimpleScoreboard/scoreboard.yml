@@ -1,0 +1,20 @@
+title: <gradient:#20BDFF:#A5FECB><b>ロビー</b></gradient>
+lines:
+  - '<gold>=== 参加方法 ==='
+  - '<red>配信の<yellow>コメント欄に'
+  - '<yellow>以下のパスコードを'
+  - '<yellow>入力してください！'
+  - ''
+  - '     #%string_substring_32_{player_uuid}%'
+  - ''
+  - '<green>承認もらってから'
+  - '<green>お入りください。'
+
+# Update interval for the scoreboard
+# In tick, 20 ticks = 1 second
+update-interval: 20
+
+# DO NOT TOUCH!
+# Changing this might lead to potentially destructive actions and loss of content.
+config-version: 1
+

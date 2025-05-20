@@ -4,8 +4,9 @@ node_modules
 *error.log
 package-lock.json
 yarn.lock
-docker/*/data
-docker/*/plugins
-docker/*/live
+docker/proxy
+docker/lobby
+docker/server
+docker/assets/*/plugins/*.jar
 .env
 *.tgz

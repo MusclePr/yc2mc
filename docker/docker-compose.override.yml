@@ -1,0 +1,5 @@
+services:
+  mc-server1-live:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile

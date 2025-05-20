@@ -4,11 +4,26 @@
 # マインクラフトのサーバーを初期化するためのスクリプト
 #==========================================================================
 
-# docker-compose のインストール確認と後片付けを兼用
-docker compose down
-if [ $? -ne 0 ]; then
-    echo "docker compose is not installed. Please install docker compose."
-    echo "https://docs.docker.com/compose/install/"
+#
+# .env が未生成なら、.env.sample をコピーして生成します。
+#
+if [ ! -f .env ]; then
+    cp .env.sample .env
+    echo 'copy ".env.sample" ---> ".env"'
+    echo 'You can custom ".env" file.'
+    echo '----------------------'
+    cat .env
+    echo '----------------------'
+    exit 0
+fi
+
+source .env
+if [ -z "${SERVER1}" ]; then
+    echo "Please set SERVER1 in .env file."
+    exit 1
+fi
+if [ -z "${BUILD_TARGET}" ]; then
+    echo "Please set BUILD_TARGET in .env file."
     exit 1
 fi
 
@@ -16,63 +31,208 @@ function clean()
 {
     # Velocity/Paper の初期化
     echo "Cleaning up ..."
-    rm -rf lobby/data server-1/data proxy/data
+    docker compose down
+    rm -rf lobby ${SERVER1} proxy
+    ./updatePlugins.sh clean
+    rm -rf assets/proxy assets/${SERVER1}
     echo "done."
 }
 
+function checkTools()
+{
+    # docker のインストール確認
+    docker --version > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "docker engine is not installed. Please install docker engine."
+        echo "https://docs.docker.com/engine/install/"
+        exit 1
+    fi
+
+    # docker compose のインストール確認
+    docker compose version > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "docker compose is not installed. Please install docker compose."
+        echo "https://docs.docker.com/compose/install/"
+        exit 1
+    fi
+
+    # yq のインストール確認
+    yq --version > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "yq is not installed. Please install yq."
+        echo "https://github.com/mikefarah/yq/"
+        exit 1
+    fi
+}
+
+# コマンドオプションをチェック
 if [ "${1}" = "clean" ]; then
     clean
     exit 0
-elif [ "${1}" = "setup" ]; then
-    echo "Setting up ..."
-else
+elif [ "${1}" != "setup" ]; then
     echo "Usage: $(basename ${0}) [clean|setup]"
     echo "  clean ... remove all data"
     echo "  setup ... setup config files"
     exit 0
 fi
 
-# yq のインストール確認
-yq --version > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo "yq is not installed. Please install yq."
-    echo "https://github.com/mikefarah/yq/"
-    exit 1
-fi
+# 必要なツールがインストールされているかチェック
+checkTools
 
-# openssl のインストール確認
-openssl version > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo "openssl is not installed. Please install openssl."
-    exit 1
-fi
+# 古いコンテナが残っていたら除去
+docker compose down
+
+# proxy/data/velocity.toml の内容を更新する
+function Proxy_updateConfig()
+{
+    local -r CONFIG="proxy/data/velocity.toml"
+
+    # 最新の初期状態に戻す場合
+    #curl -sLo "${CONFIG}" "https://github.com/PaperMC/Velocity/raw/refs/heads/dev/3.0.0/proxy/src/main/resources/default-velocity.toml"
+
+    # player-info-forwarding-mode を "modern" に変更
+    sed -i -E 's/^(player-info-forwarding-mode\s*=\s*).*$/\1"modern"/' "${CONFIG}"
+
+    # いらないサーバーの削除
+    sed -i -E '/^(factions|minigames)\s*=/d' "${CONFIG}"
+    sed -i -E '/^"(factions|minigames)\.example\.com"/,/\]/d' "${CONFIG}"
+
+    # [servers] セクションの変更
+    sed -i -E "s/^lobby = \"127.*/lobby = \"mc-lobby\"\n${SERVER1} = \"mc-${SERVER1}\"/" "${CONFIG}"
+}
+
+function Docker_getFullStatus()
+{
+    local -r CONTAINER_NAME=${1:-mc-proxy}
+    local -r STATUS=$(docker inspect -f '{{.State.Status}}' ${CONTAINER_NAME})
+    local -r HEALTHY=$(docker inspect -f '{{.State.Health.Status}}' ${CONTAINER_NAME})
+    echo "${STATUS} ${HEALTHY}"
+}
+
+function Docker_waitFullStatus()
+{
+    local -r CONTAINER_NAME=${1:-mc-proxy}
+    local -r TARGET_STATUS=${2:-running healthy}
+    local -r TIMEOUT=${3:-60}
+    local -r INTERVAL=${4:-5}
+    local -r START_TIME=$(date +%s)
+    local -r END_TIME=$((START_TIME + TIMEOUT))
+
+    while true; do
+        local STATUS=$(Docker_getFullStatus ${CONTAINER_NAME})
+        if [ "${STATUS}" = "${TARGET_STATUS}" ]; then
+            echo "Container ${CONTAINER_NAME} is ${TARGET_STATUS}."
+            return 0
+        fi
+
+        local CURRENT_TIME=$(date +%s)
+        if [ ${CURRENT_TIME} -ge ${END_TIME} ]; then
+            echo "Container ${CONTAINER_NAME} is not ${TARGET_STATUS} after ${TIMEOUT} seconds."
+            #return 1
+            exit 1 # force exit
+        fi
+
+        sleep ${INTERVAL}
+    done
+}
+
+function Lobby_addAdvancedPortalData()
+{
+    TARGET_BASE="./lobby/data/plugins/AdvancedPortals"
+    mkdir -p "${TARGET_BASE}/desti"
+    mkdir -p "${TARGET_BASE}/portals"
+    cat - << EOL > "${TARGET_BASE}/desti/${SERVER1}.yaml"
+args:
+  name:
+  - ${SERVER1}
+loc:
+  pitch: 1.0
+  worldName: lobby
+  x: 2.5
+  y: 0.0
+  yaw: 180.0
+  z: 2.5
+EOL
+    cat - << EOL > "${TARGET_BASE}/portals/${SERVER1}.yaml"
+args:
+  bungee:
+  - ${SERVER1}
+  name:
+  - ${SERVER1}
+  destination:
+  - ${SERVER1}
+  triggerblock:
+  - NETHER_PORTAL
+maxLoc:
+  posX: 3
+  posY: 2
+  posZ: 0
+  worldName: lobby
+minLoc:
+  posX: 1
+  posY: 0
+  posZ: 0
+  worldName: lobby
+EOL
+}
 
 # data ディレクトリが１つでも無い場合は、初回セットアップとして作成します。
-if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d server-1/data ]; then
-    # SETUP_ONLY=true で、必要な設定ファイルだけ作成して終了させます。
-    # ただし、proxy だけ SETUP_ONLY に対応していないため、
-    # config/velocity.toml を modern に書き換えておく事で、
-    # 対応する forwarding.secret ファイルが存在しない事により、
-    # エラーでわざと失敗させます。
+if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d ${SERVER1}/data ]; then
     clean # 中途半端な状態を消す
-    SETUP_ONLY=true docker compose create --build
-    docker compose start mc-proxy
-    docker logs -f mc-proxy
-    docker compose start mc-lobby
-    docker logs -f mc-lobby
-    docker compose start mc-server-1
-    docker logs -f mc-server-1
+
+    echo "Setting up ..."
+
+    mkdir -p proxy/data lobby/data ${SERVER1}/data ${SERVER1}/live ${SERVER1}/plugins
+
+    # プラグインの更新
+    ./updatePlugins.sh
+
+    docker compose build ${BUILD_TARGET} || exit 1
+    docker compose create || exit 1
+
+    # proxy, lobby, server1 のみを開始
+    docker compose start mc-proxy mc-lobby mc-server1
+
+    # proxy の起動完了待ち（設定ファイルの生成完了待ち）
+    echo "waiting healthy for mc-proxy"
+    Docker_waitFullStatus mc-proxy "running healthy"
+
+    # lobby の起動完了待ち（設定ファイルの生成完了待ち）
+    echo "waiting healthy for mc-lobby"
+    Docker_waitFullStatus mc-lobby "running healthy"
+    # mc-lobby の PlaceholderAPI に追加の Expansion をダウンロードします。
+    docker exec -it mc-lobby rcon-cli papi ecloud download Player
+    sleep 1
+    docker exec -it mc-lobby rcon-cli papi ecloud download String
+    sleep 1
+    if [ -n "${OP_USER}" ]; then
+        docker exec -it mc-lobby rcon-cli op ${OP_USER}
+    fi
+
+    # server1 の起動完了待ち（設定ファイルの生成完了待ち）
+    echo "waiting mc-${SERVER1} for mc-server1"
+    Docker_waitFullStatus mc-${SERVER1} "running healthy"
+    if [ -n "${OP_USER}" ]; then
+        docker exec -it mc-${SERVER1} rcon-cli op ${OP_USER}
+    fi
+
+    # 終了
     docker compose down
+
+    # proxy の設定ファイルを更新
+    Proxy_updateConfig
+
+    # AdvancedPortal のプラグインに server1 用のテレポート設定を追加する
+    Lobby_addAdvancedPortalData
 fi
 
-#
-# forwarding.secret の生成
-#
-if [ ! -f proxy/data/forwarding.secret ]; then
-    SECRET=$(openssl rand -hex 16)
-    echo "${SECRET}" > proxy/data/forwarding.secret
-else
+if [ -f proxy/data/forwarding.secret ]; then
     SECRET=$(cat proxy/data/forwarding.secret)
+fi
+
+if [ -z "${SECRET}" ]; then
+    echo "proxy (Velocity) が forwarding.secret の生成に失敗しています。"
+    exit 1
 fi
 
 bungeecord=false
@@ -93,6 +253,7 @@ function set_spigot_bungeecord()
 
     yq -i ".settings.bungeecord = ${bungeecord}" ${CONFIG}
 
+    # 確認のための表示
     echo -e "\e[36msettings:"
     echo -en "  bungeecord: \e[35m"
     cat ${CONFIG} | yq '.settings.bungeecord'
@@ -128,46 +289,14 @@ function set_paper_velocity()
     yq ".proxies.velocity.secret = \"${SECRET}\"" \
     > ${CONFIG}
 
+    # 確認のための表示
     echo -e "\e[36mproxies:\e[0m"
     cat ${CONFIG} | yq -C '.proxies' | sed -re 's/^/  /'
     return 0
 }
 
-for server in lobby server-1; do
-    if [ ! -d ${server}/data ]; then
-        echo "${server}/data does not found."
-        exit 1
-    fi
-    set_spigot_bungeecord ${server} && set_paper_velocity ${server} || exit 1
+# すべての Minecraft サーバーに対し、プロキシーから接続できるように設定を行う
+for s in lobby ${SERVER1}; do
+    set_spigot_bungeecord ${s} && set_paper_velocity ${s} || exit 1
 done
 
-#
-# .env が未生成なら、.env.sample をコピーして生成します。
-#
-if [ ! -f .env ]; then
-    cp .env.sample .env
-    echo ".env.sample -> .env"
-    echo "Please edit .env"
-fi
-
-#
-# mc-lobby の PlaceholderAPI に追加の Expansion をダウンロードします。
-#
-docker compose create mc-lobby
-docker compose start mc-lobby
-while true; do
-    STATUS=$(docker inspect -f '{{.State.Status}}' mc-lobby)
-    HEALTHY=$(docker inspect -f '{{.State.Health.Status}}' mc-lobby)
-    if [ "${STATUS}" = "running" ] && [ "${HEALTHY}" = "healthy" ]; then
-        docker exec -it mc-lobby rcon-cli papi ecloud download Player
-        sleep 1
-        docker exec -it mc-lobby rcon-cli papi ecloud download String
-        sleep 1
-        docker stop mc-lobby
-        break
-    fi
-    sleep 1
-done
-docker wait mc-lobby
-docker logs mc-lobby
-docker compose down
