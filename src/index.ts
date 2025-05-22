@@ -34,6 +34,8 @@ const MC_YOUTUBE_NAME_COLOR : string = process.env.MC_YOUTUBE_NAME_COLOR || DEFA
 // twitch-chat のクライアントIDとシークレット
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || 'ids1p64r28f77znlfway7vz7j6xfev';
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'qzw78q5id4u1rmkqb81w7xjgjenn93';
+const LOBBY_HOST = process.env.LOBBY_HOST || "" // ロビーのホスト名
+const GATE_LOCATION = process.env.GATE_LOCATION || "" // ゲートの座標を指定する場合は、"x y z rotation pitch"を指定する。例："-100 64 200 180 0"
 
 if (process.env.SETUP_ONLY === "true") {
   process.exit(0)
@@ -795,23 +797,55 @@ function SetNickName(id: string, nick: string) : boolean
     // 絵文字除去：RAINBOW PEGASUS（HN:PEGASUS）
     let new_nick = RemoveEmoji(nick)
     if (new_nick.length > 0) nick = new_nick // 絵文字だけの場合、削除しない
-    // 空白と記号以降は除去：RAINBOW
-    let new_nicks = nick.split(/[ !-/:-?[-^`{-~　！-／：-？［-＾‘｛-｝「」【】《》]/u)
+    //console.log("絵文字除去後のニックネーム：" + nick)
+    // 空白と記号は除去：RAINBOW
+    let new_nicks = nick.split(/[ !--/:-?[-^`{-~　！-－：-？［-＾‘｛-～「」【】《》]/u)
     for (let n of new_nicks) {
-      if (n.length >= 0) {
+      if (n.length > 0) {
         nick = n
         break
       }
     }
+    //console.log("空白と記号以降除去後のニックネーム：" + nick)
     // 半角→全角：ＲＡＩＮＢＯＷ
     nick = Hankaku2Zenkaku(nick)
+    //console.log("半角→全角後のニックネーム：" + nick)
     // １６文字まで
     const MAX_NICK_LENGTH : number = 16
     if (nick.length > MAX_NICK_LENGTH) nick = nick.slice(0, MAX_NICK_LENGTH)
+    //console.log("１６文字までのニックネーム：" + nick)
     // コマンド文字列：setothernick <id> <nick>
-    let command : string = 'setothernick ' + id + ' ' + nick
+    if (nick.length > 0) {
+      let command : string = 'setothernick ' + id + ' ' + nick
+      console.log(command)
+      rcon.send(command)
+      return true
+    }
+  }
+  return false
+}
+
+async function SendLobbyCommand(cmd: string) : Promise<string>
+{
+  if (LOBBY_HOST && cmd.length > 0) {
+    let command : string = 'docker exec ' + LOBBY_HOST + ' rcon-cli ' + cmd
     console.log(command)
-    rcon.send(command)
+    return ExecCommand(command)
+  }
+  return ""
+}
+
+async function SendAcceptMessage(id: string, name: string, memo: string) : Promise<boolean>
+{
+  if (LOBBY_HOST) {
+    await SendLobbyCommand('tellraw ' + id + ' \'{"text":"参加希望が承諾されました。","color":"green"}\'')
+    await SendLobbyCommand('tellraw ' + id + ' \'{"text":"ようこそ、' + name + 'さん","color":"white"}\'')
+    await SendLobbyCommand('tellraw ' + id + ' \'{"text":"ゲートをお通りください。","color":"white"}\'')
+    await SendLobbyCommand('title ' + id + ' subtitle \'{"text":"ゲートをお通りください。","color":"white"}\'')
+    await SendLobbyCommand('title ' + id + ' title \'{"text":"承諾されました！","color":"green"}\'')
+    if (GATE_LOCATION.length > 0) {
+      await SendLobbyCommand('tp ' + id + ' ' + GATE_LOCATION)
+    }
     return true
   }
   return false
@@ -1003,11 +1037,11 @@ app.get('/status', (req : express.Request, res : express.Response) => {
         const id: string = aps[i].id.replace(/^\./, "__bedrock__")
         if (id === KEYWORD_FAILED) continue
         const cmd: string = "yq '.players." + id + ".flag' /data/plugins/NickAfkPartyPack/nicknames.yml"
-        console.log(cmd)
+        //console.log(cmd)
         ExecCommand(cmd).then((flag : string) => {
           if (flag.length > 0) {
             flag = flag.trimEnd()
-            console.log(flag)
+            //console.log(flag)
             if (flag == "1") {
               const BE : boolean = (aps[i].id.charAt(0) == '.')
               aps[i].memo = !BE ? "[OK] Java版" : "[OK] 統合版"
@@ -1127,17 +1161,22 @@ app.get('/accept', (req : express.Request, res : express.Response) => {
     if (idx >= 0) {
       if (id == "") id = aps[idx].id
       const BE : boolean = (id.charAt(0) == '.')
-      aps[idx].memo = !BE ? "[OK] Java版" : "[OK] 統合版"
-      aps[idx].accept = BE ? 2 : 1
-      /*
-      const cmd1 : string = 'scoreboard players set ' + id + ' joinGame 3'
-      const cmd2 : string = 'pardon ' + id
-      console.log(cmd1)
-      rcon.send(cmd1)
-      console.log(cmd2)
-      rcon.send(cmd2)
-      */
       result = SetNickName(id, aps[idx].name)
+      if (result) {
+        aps[idx].memo = !BE ? "[OK] Java版" : "[OK] 統合版"
+        aps[idx].accept = BE ? 2 : 1
+        /*
+        const cmd1 : string = 'scoreboard players set ' + id + ' joinGame 3'
+        const cmd2 : string = 'pardon ' + id
+        console.log(cmd1)
+        rcon.send(cmd1)
+        console.log(cmd2)
+        rcon.send(cmd2)
+        */
+        SendAcceptMessage(id, aps[idx].name, aps[idx].memo)
+      } else {
+        console.log(id + " のニックネーム「" + aps[idx].name + "」の設定に失敗しました")
+      }
     }
   }
   let live_info_list = g_liveManager.getLiveInfoList()

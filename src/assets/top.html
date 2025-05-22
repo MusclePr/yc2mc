@@ -63,7 +63,7 @@ function onLoadResponse()
         g_live_info_list = res.live_info_list;
         updateLiveInfoList(res.live_info_list);
     }
-    if (res.aps != undefined) {
+    if (res.aps != undefined || res.result != undefined) {
         g_list = res.aps;
         updateList(res.aps);
     }

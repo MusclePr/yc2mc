@@ -22,6 +22,7 @@ services:
     image: MusclePr/mc-proxy
     ports:
       - 25565:25565
+      - 19132:19132/udp
     environment:
       TYPE: "VELOCITY"
     volumes:
@@ -91,6 +92,9 @@ services:
       RCON_PASSWORD: "${SERVER1_RCON_PASSWORD}"
       RCON_PORT: 25575
       TICKET_SERVER: "mc-lobby-ticket:8000"
+      # LOBBY
+      LOBBY_HOST: mc-lobby
+      GATE_LOCATION: "2 0 5 180 0"
     depends_on:
       - mc-server1
       - mc-lobby-ticket
