@@ -8,7 +8,6 @@ function debug() {
     done
 }
 
-chown -R node:node /app /config
 su-exec node echo "Switch user to node"
 if [ $? -ne 0 ] || [ -n "${DEBUG}" ]; then
     debug

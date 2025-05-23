@@ -12,17 +12,19 @@ ENV LC_ALL=ja_JP.UTF-8
 ENV NODE_OPTIONS=--no-deprecation
 WORKDIR /app
 
-COPY dist/index.js .
-COPY src/assets/ ./assets/
-COPY package.json ./
-COPY youtube-chat-v2.2.0.tgz ./
-COPY twitch-chat-v1.0.0.tgz ./
+COPY --chown=node:node dist/index.js .
+COPY --chown=node:node src/assets/ ./assets/
+COPY --chown=node:node package.json ./
+COPY --chown=node:node youtube-chat-v2.2.0.tgz ./
+COPY --chown=node:node twitch-chat-v1.0.0.tgz ./
 RUN yarn install --production
 RUN yarn cache clean
 RUN rm -f package.json yarn.lock
 
-COPY docker/assets/entrypoint.sh .
+COPY --chown=node:node docker/assets/entrypoint.sh .
 RUN chmod +x ./entrypoint.sh
+RUN mkdir -p /config
+RUN chown node:node /app /config
 
 EXPOSE 8080
 VOLUME [ "/config" ]
