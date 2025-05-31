@@ -7,6 +7,7 @@ Youtube のライブ配信チャットを Minecraft サーバーのゲーム内�
 ## 機能
 
 - Youtube ライブ配信のチャット監視
+  - Twitch にも対応
 - チャットの Minecraft サーバーへの転送 
 - 参加希望者の管理
   - 参加希望コメントの検出
@@ -26,14 +27,14 @@ Youtube のライブ配信チャットを Minecraft サーバーのゲーム内�
 - Node.js v16以上
 - Minecraft サーバー (Paper)
 - 以下のプラグイン:
-  - ProtocolLib
-  - NickAfkPartyPack
+  - NicknameRequired
+    - ProtocolLib
 
 ## イメージのビルド
 
 ```sh
 # リポジトリをクローン
-git clone https://github.com/MusclePr/yc2mc
+git clone https://github.com/MusclePr/yc2mc.git
 
 # 依存パッケージをインストール
 yarn install
@@ -45,7 +46,6 @@ yarn run build
 cd docker
 ./init.sh clean
 ./init.sh setup
-
 ```
 
 ## 設定
@@ -60,11 +60,11 @@ environment:
   RCON_PASSWORD: "AdminPassword"
 ```
 
-## 起動
+## Docker イメージの起動
 
 ```sh
 cd docker
-./run.sh
+./up.sh
 ```
 
 Web UI: http://localhost:8080

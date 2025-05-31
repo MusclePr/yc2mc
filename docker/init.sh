@@ -1,32 +1,10 @@
 #!/bin/bash
 
-#==========================================================================
-# マインクラフトのサーバーを初期化するためのスクリプト
-#==========================================================================
+#---------------------------------------------------------
+# ヘルパー関数群
+#---------------------------------------------------------
 
-#
-# .env が未生成なら、.env.sample をコピーして生成します。
-#
-if [ ! -f .env ]; then
-    cp .env.sample .env
-    echo 'copy ".env.sample" ---> ".env"'
-    echo 'You can custom ".env" file.'
-    echo '----------------------'
-    cat .env
-    echo '----------------------'
-    exit 0
-fi
-
-source .env
-if [ -z "${SERVER1}" ]; then
-    echo "Please set SERVER1 in .env file."
-    exit 1
-fi
-if [ -z "${BUILD_TARGET}" ]; then
-    echo "Please set BUILD_TARGET in .env file."
-    exit 1
-fi
-
+# 初期化
 function clean()
 {
     # Velocity/Paper の初期化
@@ -38,6 +16,7 @@ function clean()
     echo "done."
 }
 
+# 必要ツールのインストール確認
 function checkTools()
 {
     # docker のインストール確認
@@ -65,24 +44,7 @@ function checkTools()
     fi
 }
 
-# コマンドオプションをチェック
-if [ "${1}" = "clean" ]; then
-    clean
-    exit 0
-elif [ "${1}" != "setup" ]; then
-    echo "Usage: $(basename ${0}) [clean|setup]"
-    echo "  clean ... remove all data"
-    echo "  setup ... setup config files"
-    exit 0
-fi
-
-# 必要なツールがインストールされているかチェック
-checkTools
-
-# 古いコンテナが残っていたら除去
-docker compose down
-
-# proxy/data/velocity.toml の内容を更新する
+# 起動後に作成される proxy/data/velocity.toml の内容を更新する
 function Proxy_updateConfig()
 {
     local -r CONFIG="proxy/data/velocity.toml"
@@ -101,6 +63,7 @@ function Proxy_updateConfig()
     sed -i -E "s/^lobby = \"127.*/lobby = \"mc-lobby\"\n${SERVER1} = \"mc-${SERVER1}\"/" "${CONFIG}"
 }
 
+# コンテナの状態を取得するヘルパー関数
 function Docker_getFullStatus()
 {
     local -r CONTAINER_NAME=${1:-mc-proxy}
@@ -109,6 +72,7 @@ function Docker_getFullStatus()
     echo "${STATUS} ${HEALTHY}"
 }
 
+# コンテナの状態が目標の状態になるまで待機するヘルパー関数
 function Docker_waitFullStatus()
 {
     local -r CONTAINER_NAME=${1:-mc-proxy}
@@ -136,6 +100,7 @@ function Docker_waitFullStatus()
     done
 }
 
+# AdvancedPortals プラグイン用の設定ファイルを生成する関数
 function Lobby_addAdvancedPortalData()
 {
     TARGET_BASE="./lobby/data/plugins/AdvancedPortals"
@@ -176,73 +141,11 @@ minLoc:
 EOL
 }
 
-# data ディレクトリが１つでも無い場合は、初回セットアップとして作成します。
-if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d ${SERVER1}/data ]; then
-    clean # 中途半端な状態を消す
-
-    echo "Setting up ..."
-
-    mkdir -p proxy/data lobby/data ${SERVER1}/data ${SERVER1}/live ${SERVER1}/plugins
-
-    # プラグインの更新
-    ./updatePlugins.sh
-
-    docker compose build ${BUILD_TARGET} || exit 1
-    docker compose create || exit 1
-
-    # proxy, lobby, server1 のみを開始
-    docker compose start mc-proxy mc-lobby mc-server1
-
-    # proxy の起動完了待ち（設定ファイルの生成完了待ち）
-    echo "waiting healthy for mc-proxy"
-    Docker_waitFullStatus mc-proxy "running healthy"
-
-    # lobby の起動完了待ち（設定ファイルの生成完了待ち）
-    echo "waiting healthy for mc-lobby"
-    Docker_waitFullStatus mc-lobby "running healthy"
-    # mc-lobby の PlaceholderAPI に追加の Expansion をダウンロードします。
-    docker exec -it mc-lobby rcon-cli papi ecloud download Player
-    sleep 1
-    docker exec -it mc-lobby rcon-cli papi ecloud download String
-    sleep 1
-    if [ -n "${OP_USER}" ]; then
-        docker exec -it mc-lobby rcon-cli op ${OP_USER}
-    fi
-
-    # server1 の起動完了待ち（設定ファイルの生成完了待ち）
-    echo "waiting mc-${SERVER1} for mc-server1"
-    Docker_waitFullStatus mc-${SERVER1} "running healthy"
-    if [ -n "${OP_USER}" ]; then
-        docker exec -it mc-${SERVER1} rcon-cli op ${OP_USER}
-    fi
-
-    # 終了
-    docker compose down
-
-    # proxy の設定ファイルを更新
-    Proxy_updateConfig
-
-    # AdvancedPortal のプラグインに server1 用のテレポート設定を追加する
-    Lobby_addAdvancedPortalData
-fi
-
-if [ -f proxy/data/forwarding.secret ]; then
-    SECRET=$(cat proxy/data/forwarding.secret)
-fi
-
-if [ -z "${SECRET}" ]; then
-    echo "proxy (Velocity) が forwarding.secret の生成に失敗しています。"
-    exit 1
-fi
-
-bungeecord=false
-velocity=true
-
-#<data/spigot.yml>
-#
+# Spigot の設定ファイルを更新する関数
+# 対象ファイル：${1}/data/spigot.yml
 #settings:
-#  bungeecord: true
-function set_spigot_bungeecord()
+#  bungeecord: <true | false>
+function setupSpigotForBungeecord()
 {
     local -r CONFIG=${1:-.}/data/spigot.yml
     if [ ! -f ${CONFIG} ]; then
@@ -261,16 +164,17 @@ function set_spigot_bungeecord()
     return 0
 }
 
-#<data/config/paper-global.yml>
+# Paper の設定ファイルを更新する関数
+# 対象ファイル：${1}/data/config/paper-global.yml
 #proxies:
 #  bungee-cord:
 #    online-mode: true
 #  proxy-protocol: false
 #  velocity:
-#    enabled: false
+#    enabled: <true | false>
 #    online-mode: true
 #    secret: '<SECRET>'
-function set_paper_velocity()
+function setupPaperForVelocity()
 {
     local -r CONFIG=${1:-.}/data/config/paper-global.yml
     if [ ! -f ${CONFIG} ]; then
@@ -295,8 +199,133 @@ function set_paper_velocity()
     return 0
 }
 
+#==========================================================================
+# マインクラフトサーバーを初期化するためのメイン処理
+#==========================================================================
+
+#
+# .env が未生成なら、.env.sample をコピーして生成します。
+#
+if [ ! -f .env ]; then
+    cp .env.sample .env
+    echo 'copy ".env.sample" ---> ".env"'
+    echo 'You can custom ".env" file.'
+    echo '----------------------'
+    cat .env
+    echo '----------------------'
+    exit 0
+fi
+
+#
+# .env ファイルの読み込みと必須変数のチェック
+#
+source .env
+if [ -z "${SERVER1}" ]; then
+    echo "Please set SERVER1 in .env file."
+    exit 1
+fi
+if [ -z "${BUILD_TARGET}" ]; then
+    echo "Please set BUILD_TARGET in .env file."
+    exit 1
+fi
+
+#
+# コマンドオプションをチェック
+#
+if [ "${1}" = "clean" ]; then
+    clean
+    exit 0
+elif [ "${1}" != "setup" ]; then
+    echo "Usage: $(basename ${0}) [clean|setup]"
+    echo "  clean ... remove all data"
+    echo "  setup ... setup config files"
+    exit 0
+fi
+
+#
+# 必要なツールがインストールされているかチェック
+#
+checkTools
+
+#
+# 古いコンテナが残っていたら除去
+#
+docker compose down
+
+#
+# data ディレクトリが１つでも無い場合は、初回セットアップとして作成します。
+#
+if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d ${SERVER1}/data ]; then
+    clean # 中途半端な状態を消す
+
+    echo "Setting up ..."
+
+    mkdir -p proxy/data lobby/data ${SERVER1}/data ${SERVER1}/live ${SERVER1}/plugins
+
+    # プラグインの更新
+    ./updatePlugins.sh
+
+    # Docker イメージのビルド
+    docker compose build ${BUILD_TARGET} || exit 1
+
+    # コンテナの作成（まだ起動しない）
+    docker compose create || exit 1
+
+    # mc-proxy, mc-lobby, mc-server1 サービスのみを開始
+    docker compose start mc-proxy mc-lobby mc-server1
+
+    # mc-proxy の起動完了待ち（設定ファイルの生成完了待ち）
+    echo "waiting healthy for mc-proxy"
+    Docker_waitFullStatus mc-proxy "running healthy"
+
+    # mc-lobby の起動完了待ち（設定ファイルの生成完了待ち）
+    echo "waiting healthy for mc-lobby"
+    Docker_waitFullStatus mc-lobby "running healthy"
+    # mc-lobby の PlaceholderAPI に追加の Expansion をダウンロードします。
+    docker exec -it mc-lobby rcon-cli papi ecloud download Player
+    sleep 1
+    docker exec -it mc-lobby rcon-cli papi ecloud download String
+    sleep 1
+    if [ -n "${OP_USER}" ]; then
+        docker exec -it mc-lobby rcon-cli op ${OP_USER}
+    fi
+
+    # mc-server1 の起動完了待ち（設定ファイルの生成完了待ち）
+    echo "waiting mc-${SERVER1} for mc-server1"
+    Docker_waitFullStatus mc-${SERVER1} "running healthy"
+    if [ -n "${OP_USER}" ]; then
+        docker exec -it mc-${SERVER1} rcon-cli op ${OP_USER}
+    fi
+
+    # 終了
+    docker compose down
+
+    # mc-proxy の設定ファイルを更新
+    Proxy_updateConfig
+
+    # AdvancedPortal のプラグインに server1 用のテレポート設定を追加する
+    Lobby_addAdvancedPortalData
+fi
+
+#
+# ここからは、すでにコンテナが一度起動・終了して必要な設定ファイルが作成されている前提で設定を行います。
+#
+if [ -f proxy/data/forwarding.secret ]; then
+    SECRET=$(cat proxy/data/forwarding.secret)
+fi
+
+if [ -z "${SECRET}" ]; then
+    echo "proxy (Velocity) が forwarding.secret の生成に失敗しています。"
+    exit 1
+fi
+
+#
+# Velocity の動作モードを設定します
+#
+bungeecord=false
+velocity=true
+
 # すべての Minecraft サーバーに対し、プロキシーから接続できるように設定を行う
 for s in lobby ${SERVER1}; do
-    set_spigot_bungeecord ${s} && set_paper_velocity ${s} || exit 1
+    setupSpigotForBungeecord ${s} && setupPaperForVelocity ${s} || exit 1
 done
-

@@ -1,14 +1,8 @@
 #!/bin/bash
 
-if [ ! -f .env ]; then
-    echo ".env file was not found."
-    exit 1
-fi
-
-source .env
-
-# ダウンロード先ディレクトリ
-DEST_DIR="./plugins"
+#---------------------------------------------------------
+# ヘルパー関数群
+#---------------------------------------------------------
 
 # github.com から最終リリースのURLを探す
 # Github_getLatestUrl <リポジトリ> <パターン>
@@ -110,7 +104,21 @@ function DownloadFromSpigot()
     fi
 }
 
+#==========================================================================
+# メイン処理
+#==========================================================================
 
+if [ ! -f .env ]; then
+    echo ".env file was not found."
+    exit 1
+fi
+
+source .env
+
+# ダウンロード先ディレクトリ
+DEST_DIR="./plugins"
+
+# 初期化の場合
 if [ "${1}" = "clean" ]; then
     LIST=$(ls -1 assets/*/plugins/*.jar 2> /dev/null)
     if [ -n "${LIST}" ]; then
@@ -132,6 +140,7 @@ Download "${URL}" "${DEST_DIR}/ViaVersion.jar"
 # 最新の ViaBackwards のダウンロード URL を取得
 URL=$(Github_getLatestUrl ViaVersion/ViaBackwards ViaBackwards-.*\.jar)
 Download "${URL}" "${DEST_DIR}/ViaBackwards.jar"
+# 統合版のためのプラグイン
 Download "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/velocity" "${DEST_DIR}/Geyser-Velocity.jar"
 Download "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/velocity" "${DEST_DIR}/floodgate-velocity.jar"
 
@@ -150,7 +159,17 @@ DownloadFromSpigot 6245
 #
 DEST_DIR="assets/${SERVER1}/plugins"
 mkdir -p "${DEST_DIR}"
+# 依存関係上必要なプラグイン
 Download "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
-Download "https://a-b-c-d.com/downloads/NickAfkPartyPack.jar" "${DEST_DIR}/NickAfkPartyPack.jar"
+# ニックネームプラグイン
+SRC_FILE=~/dev/NicknameRequired/build/libs/NicknameRequired-1.0-SNAPSHOT.jar
+if [ -f "${SRC_FILE}" ]; then
+    echo "NicknameRequired.jar found in local, copying to ${DEST_DIR}"
+    cp -v "${SRC_FILE}" "${DEST_DIR}/NicknameRequired.jar"
+else
+    URL=$(Github_getLatestUrl MusclePr/NicknameRequired NicknameRequired-.*\.jar)
+    Download "${URL}" "${DEST_DIR}/NicknameRequired.jar"
+fi
+# 権限管理プラグイン
 # https://www.spigotmc.org/resources/luckperms.28140/
 DownloadFromSpigot 28140

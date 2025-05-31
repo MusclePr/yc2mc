@@ -36,6 +36,10 @@ const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || 'ids1p64r28f77znlfway7v
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'qzw78q5id4u1rmkqb81w7xjgjenn93';
 const LOBBY_HOST = process.env.LOBBY_HOST || "" // ロビーのホスト名
 const GATE_LOCATION = process.env.GATE_LOCATION || "" // ゲートの座標を指定する場合は、"x y z rotation pitch"を指定する。例："-100 64 200 180 0"
+// ニックネームを設定するプラグインの設定
+const NICKNAME_YAML = process.env.NICKNAME_YAML || "'/data/plugins/NicknameRequired/nicknames.yml'" // ニックネームを設定するプラグイン名
+const NICKNAME_SET_CMD = process.env.NICKNAME_SET_CMD || "nickset" // ニックネームを設定するコマンド名
+const NICKNAME_DEL_CMD = process.env.NICKNAME_DEL_CMD || "nickset" // ニックネームを削除するコマンド名（NicknameRequiredは、nickset と共通）
 
 if (process.env.SETUP_ONLY === "true") {
   process.exit(0)
@@ -814,9 +818,9 @@ function SetNickName(id: string, nick: string) : boolean
     const MAX_NICK_LENGTH : number = 16
     if (nick.length > MAX_NICK_LENGTH) nick = nick.slice(0, MAX_NICK_LENGTH)
     //console.log("１６文字までのニックネーム：" + nick)
-    // コマンド文字列：setothernick <id> <nick>
+    // コマンド文字列：<NICKNAME_SET_CMD> <id> <nick>
     if (nick.length > 0) {
-      let command : string = 'setothernick ' + id + ' ' + nick
+      let command : string = NICKNAME_SET_CMD + ' ' + id + ' ' + nick
       console.log(command)
       rcon.send(command)
       return true
@@ -1036,7 +1040,7 @@ app.get('/status', (req : express.Request, res : express.Response) => {
         // 未ログイン
         const id: string = aps[i].id.replace(/^\./, "__bedrock__")
         if (id === KEYWORD_FAILED) continue
-        const cmd: string = "yq '.players." + id + ".flag' /data/plugins/NickAfkPartyPack/nicknames.yml"
+        const cmd: string = "yq '.players." + id + ".flag' " + NICKNAME_YAML
         //console.log(cmd)
         ExecCommand(cmd).then((flag : string) => {
           if (flag.length > 0) {
@@ -1081,7 +1085,7 @@ app.get('/reset', (req : express.Request, res : express.Response) => {
         aps[i].memo = !BE ? "[NG] Java版" : "[NG] 統合版"
       }
       aps[i].accept = 0 // 未承認
-      rcon.send('delothernick ' + aps[i].id)
+      rcon.send(NICKNAME_DEL_CMD + ' ' + aps[i].id)
       rcon.send('kick ' + aps[i].id + ' すべての参加申請をリセットしました。')
     }
   }
@@ -1135,7 +1139,7 @@ app.get('/delete', (req : express.Request, res : express.Response) => {
       rcon.send(cmd2)
       */
       if (deny == "1" && id != "") {
-        rcon.send('delothernick ' + id)
+        rcon.send(NICKNAME_DEL_CMD + ' ' + id)
         rcon.send('kick ' + id + ' 参加申請を却下しました。')
       }
       result = ApArray_delete(name)
@@ -1206,7 +1210,7 @@ app.get('/deny', (req : express.Request, res : express.Response) => {
       rcon.send('scoreboard players reset ' + id + ' joinGame')
       */
       if (id != "") {
-        rcon.send('delothernick ' + id)
+        rcon.send(NICKNAME_DEL_CMD + ' ' + id)
         rcon.send('kick ' + id)
       }
       result = true
