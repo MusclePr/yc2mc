@@ -6,6 +6,8 @@ import Axios from 'axios'
 import * as fs from "node:fs"
 import express from "express"
 import basicAuth from "express-basic-auth"
+import * as http from "http"
+import WebSocket from "ws"
 import { Applicants, ApArray, LiveStreamConfig, LiveStreamConfigArray, LiveStreamInfo, LiveStreamInfoArray, MinecraftColor } from "./types/index.d"
 
 // ====================================================================
@@ -169,9 +171,51 @@ app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 app.use(express.static(__dirname + '/assets'))
 
+// HTTPサーバーを作成
+const server = http.createServer(app)
+
+// WebSocketサーバーを作成
+const wss = new WebSocket.Server({ server })
+
+// WebSocketクライアント管理
+const clients = new Set<WebSocket>()
+
+wss.on('connection', (ws: WebSocket) => {
+  console.log('WebSocket client connected')
+  clients.add(ws)
+  
+  ws.on('close', () => {
+    console.log('WebSocket client disconnected')
+    clients.delete(ws)
+  })
+  
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error)
+    clients.delete(ws)
+  })
+  
+  // 接続時に現在の状態を送信
+  const currentStatus = {
+    rcon: inRcon,
+    live_info_list: g_liveManager.getLiveInfoList(),
+    aps: aps
+  }
+  ws.send(JSON.stringify(currentStatus))
+})
+
+// 全クライアントに更新を送信
+function broadcastUpdate(data: any) {
+  const message = JSON.stringify(data)
+  clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message)
+    }
+  })
+}
+
 // 8080番ポートでサーバーを待ちの状態にする。
 // またサーバーが起動したことがわかるようにログを出力する
-app.listen(HTTP_PORT, () => {
+server.listen(HTTP_PORT, () => {
   console.log("Youtube to Minecraft Chat サービス起動中");
 })
 
@@ -873,6 +917,9 @@ function onStart(cmd: string)
       console.log("RCON_SEND_ON_LIVE_START: " + cmd)
     }
   }
+  
+  // WebSocketクライアントに状態更新を通知
+  broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
 }
 
 // 転送終了時
@@ -889,6 +936,9 @@ function onEnd(cmd: string)
       console.log("RCON_SEND_ON_LIVE_END: " + cmd)
     }
   }
+  
+  // WebSocketクライアントに状態更新を通知
+  broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
 }
 
 // 転送開始後にエラーが発生した時
@@ -901,6 +951,9 @@ function onError()
     //rcon.send('title @a title "配信コメント転送"')
     rcon.send('tellraw @a {"text":"<配信コメント転送エラー>","color":"red"}')
   }
+  
+  // WebSocketクライアントに状態更新を通知
+  broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
 }
 
 // チャットの転送
@@ -921,8 +974,10 @@ function onChat(name: string, text: string, color?: MinecraftColor)
 // チャットのチェック
 function onChatCheck(name: string, text: string)
 {
+  let bModified : boolean = false
   if (KEYWORD_CANCEL && text.match(RegExp(KEYWORD_CANCEL))) {
     ApArray_delete(name)
+    bModified = true
   } else if (text.match(RegExp(KEYWORD))) {
     const matcher : string = KEYWORD + "[\\s　、。・／/％%:：]*([\\w\\.]+)[\\s　＠@・／/]*(.*)$"
     let result : RegExpMatchArray | null = text.match(RegExp(matcher))
@@ -930,10 +985,12 @@ function onChatCheck(name: string, text: string)
     if (result && result.length > 3 && id.length > 0) {
       let a : Applicants = { id: id, name: name, memo: result[3], accept: 0, nicked: false}
       ApArray_add(a)
+      bModified = true
     } else if (KEYWORD_FAILED) {
       result = text.match(RegExp(KEYWORD))
       if (result) {
         ApArray_add({id: KEYWORD_FAILED, name: name, memo: KEYWORD_FAILED_MEMO, accept: 0, nicked: false})
+        bModified = true
       }
     }
   } else {
@@ -946,10 +1003,15 @@ function onChatCheck(name: string, text: string)
           console.log("id=\"" + id + "\"")
           if (id.length > 0) {
             ApArray_add({id: id, name: name, memo: "from Hub", accept: 0, nicked: false})
+            bModified = true
           }
         })
       }
     }
+  }
+  if (bModified) {
+    // WebSocketクライアントに状態更新を通知
+    broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
   }
 }
 
@@ -960,23 +1022,31 @@ function onChatCheck(name: string, text: string)
 rcon.on("connect", () => {
   console.log("<rcon> connected")
   inRcon = 1
+  // WebSocket経由で状態更新を送信
+  broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
 })
 
 rcon.on("authenticated", () => {
   console.log("<rcon> authenticated")
   inRcon = 2
+  // WebSocket経由で状態更新を送信
+  broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
 })
 
 rcon.on("end", () => {
   console.log("<rcon> end")
   inRcon = 0
   doEnd = true
+  // WebSocket経由で状態更新を送信
+  broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
 })
 
 rcon.on("error", () => {
   console.log("<rcon> error")
   inRcon = 0
   doEnd = true
+  // WebSocket経由で状態更新を送信
+  broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
 })
 
 // ====================================================================
@@ -1007,8 +1077,12 @@ app.get('/start', (req : express.Request, res : express.Response) => {
     g_liveManager.start(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "start", "rcon": inRcon, "live_info_list": live_info_list})
+  const responseData = { "request": "start", "rcon": inRcon, "live_info_list": live_info_list}
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/stop', (req : express.Request, res : express.Response) => {
@@ -1018,8 +1092,12 @@ app.get('/stop', (req : express.Request, res : express.Response) => {
     g_liveManager.stop(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "start", "rcon": inRcon, "live_info_list": live_info_list})
+  const responseData = { "request": "stop", "rcon": inRcon, "live_info_list": live_info_list}
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/remove', (req : express.Request, res : express.Response) => {
@@ -1029,8 +1107,12 @@ app.get('/remove', (req : express.Request, res : express.Response) => {
     g_liveManager.remove(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "start", "rcon": inRcon, "live_info_list": live_info_list})
+  const responseData = { "request": "remove", "rcon": inRcon, "live_info_list": live_info_list}
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/status', (req : express.Request, res : express.Response) => {
@@ -1061,9 +1143,13 @@ app.get('/status', (req : express.Request, res : express.Response) => {
   }
 
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "status", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
+  const statusData = { "request": "status", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  res.json(statusData)
   //console.log('statusのGETリクエストを受け取りました')
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(statusData)
   //WelcomeCheck() // 定期的にログインチェックする
 })
 
@@ -1071,8 +1157,12 @@ app.get('/clear', (req : express.Request, res : express.Response) => {
   console.log('clearのGETリクエストを受け取りました')
   ApArray_clear() // 参加希望者リストを空にする
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "clear", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
+  const responseData = { "request": "clear", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/reset', (req : express.Request, res : express.Response) => {
@@ -1090,8 +1180,12 @@ app.get('/reset', (req : express.Request, res : express.Response) => {
     }
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "reset", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
+  const responseData = { "request": "reset", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/add', (req : express.Request, res : express.Response) => {
@@ -1107,8 +1201,12 @@ app.get('/add', (req : express.Request, res : express.Response) => {
   let a : Applicants = {id: filterPlayerID(id), name: name, memo: memo, accept: 0, nicked: false}
   ApArray_add(a)
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "add", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
+  const responseData = { "request": "add", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/delete', (req : express.Request, res : express.Response) => {
@@ -1146,8 +1244,12 @@ app.get('/delete', (req : express.Request, res : express.Response) => {
     }
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "delete", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
+  const responseData = { "request": "delete", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/accept', (req : express.Request, res : express.Response) => {
@@ -1184,8 +1286,12 @@ app.get('/accept', (req : express.Request, res : express.Response) => {
     }
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "accept", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
+  const responseData = { "request": "accept", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/deny', (req : express.Request, res : express.Response) => {
@@ -1217,8 +1323,12 @@ app.get('/deny', (req : express.Request, res : express.Response) => {
     }
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  res.json({ "request": "deny", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps })
+  const responseData = { "request": "deny", "result": result, "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  res.json(responseData)
   res.end()
+  
+  // WebSocket経由で更新を送信
+  broadcastUpdate(responseData)
 })
 
 app.get('/logout', (req : express.Request, res : express.Response) => {

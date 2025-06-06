@@ -5,6 +5,7 @@
     "express-basic-auth": "^1.2.1",
     "node-fetch": "^3.3.2",
     "rcon-client": "^4.2.5",
+    "ws": "^8.18.2",
     "twitch-chat": "file:./twitch-chat-v1.0.0.tgz",
     "youtube-chat": "file:./youtube-chat-v2.2.0.tgz"
   },
@@ -14,6 +15,7 @@
     "@types/node": "^22.15.18",
     "@types/node-fetch": "^2.6.11",
     "@types/tmi.js": "^1.8.6",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"
   },
   "name": "yc2mc",
@@ -28,5 +30,16 @@
   },
   "author": "MusclePr",
   "license": "MIT",
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
+  "engines": {
+    "node": ">=16.0.0",
+    "yarn": ">=1.22.0",
+    "npm": "please-use-yarn"
+  },
+  "engineStrict": true,
+  "preferGlobal": false,
+  "resolutions": {},
+  "workspaces": {
+    "nohoist": []
+  }
 }

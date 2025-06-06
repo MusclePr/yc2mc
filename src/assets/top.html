@@ -10,8 +10,8 @@ var g_live_info_list = [];
 var g_list = [];
 var g_interval = 0;
 var g_busy = false;
-var g_nextRequest = "";
 var g_timeout = 0;
+var g_websocket = null;
 
 const mc_colors = {
     black: "black", // #000000
@@ -84,13 +84,10 @@ function onLoadResponse()
             }
         })
     }
-
     g_busy = false;
     if (this.status == 401) {
         // logout to reload
         document.location.reload();
-    } else {
-        auto_update();
     }
 }
 
@@ -109,7 +106,6 @@ function requestStart(uri)
 {
     if (g_busy) return false;
     g_busy = true;
-    stop_update();
 
     //console.log(uri);
     try {
@@ -145,15 +141,14 @@ function updateList(aps)
         let result = a.memo.match(RegExp("^\\[(OK|NG|ERROR)\\] "));
         //console.log(result);
         if (result && result[1] == "OK") {
-            text += "<button onClick=\"if (confirm('承諾したままですが本当に削除しますか？')) { this.parentNode.disabled=true; g_nextRequest = 'delete?name=" + Encode(a.name) + "';}\">削除</button>";
-            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'deny?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "';\">拒否</button>";
+            text += "<button onClick=\"if (confirm('承諾したままですが本当に削除しますか？')) { this.disabled=true; requestStart('delete?name=" + Encode(a.name) + "');}\">削除</button>";
+            text += "<button onClick=\"this.disabled=true; requestStart('deny?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "');\">拒否</button>";
         } else if (result && result[1] == "ERROR") {
             // [ERROR] の時は削除のみで何も表示しない
-            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'delete?name=" + Encode(a.name) + "';\">削除</button>";
-        } else {
-            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'delete?name=" + Encode(a.name) + "';\">削除</button>";
+            text += "<button onClick=\"this.disabled=true; requestStart('delete?name=" + Encode(a.name) + "');\">削除</button>";
+        } else {            text += "<button onClick=\"this.disabled=true; requestStart('delete?name=" + Encode(a.name) + "');\">削除</button>";
             const accept = bedrock ? "承諾(BE)" : "承諾(JE)"
-            text += "<button onClick=\"this.parentNode.disabled=true; g_nextRequest = 'accept?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "';\">" + accept + "</button>";
+            text += "<button onClick=\"this.disabled=true; requestStart('accept?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "');\">" + accept + "</button>";
         }
         text += "</fieldset></td></tr>";
     }
@@ -216,7 +211,7 @@ function updateLiveInfoList(live_info_list)
     text += "let color = document.getElementById('color').value;";
     text += "if (!validateUrl(url)) { alert('無効なURLです'); return }";
     text += "this.disabled = true;";
-    text += "g_nextRequest = 'start?url=' + Encode(url) + (color ? '&color=' + Encode(color) : '');";
+    text += "requestStart('start?url=' + Encode(url) + (color ? '&color=' + Encode(color) : ''));";
     text += '">追加</button>';
     text += '</td><td></td><td align="center">';
     text += '<span id="sample_color">自動</span><br>';
@@ -236,14 +231,14 @@ function updateLiveInfoList(live_info_list)
         let channel_anchor = getChannelAnchor(live.config.channelUrl, live.inLive == 1);
         let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_new">' + live.title + '</a>' : '';
         let color = live.config.color ? makeColorBox(live.config.color) : '-';
-        let controls = "<button onClick=\"if (confirm('削除しますか？')) { this.disabled=true; g_nextRequest = 'remove?url=" + channelUrl + "';}\">削除</button>";
+        let controls = "<button onClick=\"if (confirm('削除しますか？')) { this.disabled=true; requestStart('remove?url=" + channelUrl + "');}\">削除</button>";
         switch (live.inLive) {
             case 1: // 1=ライブ中
-                controls += "<button onClick=\"this.disabled=true; g_nextRequest = 'stop?url=" + channelUrl + "';\">停止</button>";
+                controls += "<button onClick=\"this.disabled=true; requestStart('stop?url=" + channelUrl + "');\">停止</button>";
                 break;
             default: // -1=エラー, 0=ライブ待ち, 2=ライブ終了
                 let busy = (live.status === 'ライブ確認中') ? " disabled" : "";
-                controls += "<button" + busy + " onClick=\"this.disabled=true; g_nextRequest = 'start?url=" + channelUrl + "&color=" + live.config.color + "';\">開始</button>";
+                controls += "<button" + busy + " onClick=\"this.disabled=true; requestStart('start?url=" + channelUrl + "&color=" + live.config.color + "');\">開始</button>";
                 break;
         }
         text += '<tr><td align="center">' + controls + '</td><td align="center">' + live.status + '</td><td align="center" valign="middle">' + color + '</td><td>' + channel_anchor + '<br>' + live_anchor + "</td></tr>\n";
@@ -282,12 +277,8 @@ function updateLiveActive(flag, forceText)
 
 function update()
 {
-    let uri = 'status';
-    if (g_nextRequest.length > 0) {
-        uri = g_nextRequest;
-        g_nextRequest = "";
-    }
-    requestStart(uri);
+    // WebSocketがある場合は状態確認のみ、ない場合はポーリング
+    requestStart('status');
 }
 
 function stop_update()
@@ -301,7 +292,81 @@ function stop_update()
 function auto_update()
 {
     stop_update();  // 保険
-    g_interval = setInterval(update, 3000);
+    // WebSocketを使用してリアルタイム更新を行う
+    connectWebSocket();
+}
+
+function connectWebSocket()
+{
+    if (g_websocket && g_websocket.readyState === WebSocket.OPEN) {
+        return; // 既に接続済み
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = protocol + '//' + window.location.host;
+    
+    g_websocket = new WebSocket(wsUrl);
+    
+    g_websocket.onopen = function(event) {
+        console.log('WebSocket connected');
+        // 接続成功時は従来のポーリングを停止
+        stop_update();
+    };
+    
+    g_websocket.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            handleWebSocketUpdate(data);
+        } catch (e) {
+            console.error('WebSocket message parse error:', e);
+        }
+    };
+    
+    g_websocket.onclose = function(event) {
+        console.log('WebSocket disconnected');
+        g_websocket = null;
+        // WebSocket接続が切れた場合はポーリングにフォールバック
+        setTimeout(() => {
+            connectWebSocket(); // 再接続を試行
+        }, 3000);
+        // フォールバック用のポーリングを開始
+        g_interval = setInterval(update, 3000);
+    };
+    
+    g_websocket.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        g_websocket = null;
+        // エラー時もポーリングにフォールバック
+        g_interval = setInterval(update, 3000);
+    };
+}
+
+function handleWebSocketUpdate(data)
+{
+    if (data.live_info_list !== undefined) {
+        g_live_info_list = data.live_info_list;
+        updateLiveInfoList(data.live_info_list);
+    }
+    if (data.aps !== undefined) {
+        g_list = data.aps;
+        updateList(data.aps);
+    }
+    if (data.rcon !== undefined) {
+        if (g_rcon_active != data.rcon) {
+            g_rcon_active = data.rcon;
+            updateRconActive(g_rcon_active);
+            updateLiveActive(g_rcon_active);
+        }
+    }
+    
+    if (g_rcon_active == 2) {
+        disable_controllers.forEach((id) => {
+            let e = document.getElementById(id);
+            if (e && e.disabled != false) {
+                e.disabled = false;
+            }
+        })
+    }
 }
 
 function logout()
@@ -340,9 +405,9 @@ function logout()
         <label>名前：<input type="text" id="name" name="name" value="" size="12" autocomplete="off"></label>
         <label>ＩＤ：<input type="text" id="id"   name="id"   value="" size="12" autocomplete="off"></label>
         <label>メモ：<input type="text" id="memo" name="memo" value="" size="12" autocomplete="off"></label>
-        <button id="add" onclick="g_nextRequest = 'add?name=' + Encode(this.form.name.value) + '&id=' + Encode(this.form.id.value) + '&memo=' + Encode(this.form.memo.value); this.form.name.value = this.form.id.value = this.form.memo.value = ''; this.disabled=true">追加</button>
-        　<button id="clear" onclick="g_nextRequest = 'clear'; this.disabled=true">全削除</button>
-        　<button id="reset" onclick="g_nextRequest = 'reset'; this.disabled=true">全拒否</button>
+        <button id="add" onclick="requestStart('add?name=' + Encode(this.form.name.value) + '&id=' + Encode(this.form.id.value) + '&memo=' + Encode(this.form.memo.value)); this.form.name.value = this.form.id.value = this.form.memo.value = ''; this.disabled=true">追加</button>
+        　<button id="clear" onclick="requestStart('clear'); this.disabled=true">全削除</button>
+        　<button id="reset" onclick="requestStart('reset'); this.disabled=true">全拒否</button>
     </form>
     <div id="list" style="margin:0pt; padding:0pt; border:0px">
     </div>
