@@ -32,6 +32,26 @@ const mc_colors = {
     white: "white" // #FFFFFF
 };
 
+// 色の日本語表示名
+const mc_color_names = {
+    black: "黒",
+    dark_blue: "紺",
+    dark_green: "緑",
+    dark_aqua: "青緑",
+    dark_red: "暗赤",
+    dark_purple: "紫",
+    gold: "金",
+    gray: "灰",
+    dark_gray: "暗灰",
+    blue: "青",
+    green: "明緑",
+    aqua: "水色",
+    red: "赤",
+    light_purple: "桃",
+    yellow: "黄",
+    white: "白"
+};
+
 const disable_controllers = [ 'start', 'name', 'id', 'memo', 'add', 'clear', 'reset' ];
 
 // クォート文字をエンコード
@@ -47,6 +67,24 @@ function EncodeQuote(str)
 function Encode(str)
 {
     return EncodeQuote(encodeURIComponent(str));
+}
+
+// クォート文字をデコード
+function DecodeQuote(str)
+{
+    return str.replace(/%([0-9a-fA-F]{2})/g, function(match, hex) {
+        let n = parseInt(hex, 16);
+        if (n === 34 || n === 39) { // " or '
+            return String.fromCharCode(n);
+        }
+        return match;
+    });
+}
+
+// 文字列デコード（クォートのケア込み）
+function Decode(str)
+{
+    return DecodeQuote(decodeURIComponent(str));
 }
 
 function onLoadResponse()
@@ -83,6 +121,9 @@ function onLoadResponse()
                 e.disabled = false;
             }
         })
+        // サーバー接続時にボタン状態を再評価（遅延なしで実行）
+        validateChannelAddButton();
+        validateAddButton();
     }
     g_busy = false;
     if (this.status == 401) {
@@ -129,28 +170,62 @@ function updateList(aps)
 {
     let e = document.getElementById("list");
     if (!e) return;
-    let text = "";
-    text += "<br/><table><thead><tr><th>名前</th><th>プレイヤー名</th><th>メモ</th><th>承諾</th><th>入室</th><th>操作</th></tr></thead><tbody>";
+    let text = "";    text += "<br/><table><thead><tr><th>名前</th><th>プレイヤー名</th><th>メモ</th><th>承諾</th><th>入室</th><th>操作</th></tr></thead><tbody>";
     for (a of aps) {
         const unknown = (a.id === "不明なユーザー")
         const bedrock = (a.id.charAt(0) == '.')
         let id_label = unknown ? '<font color=red>不明なユーザー</font>' : (bedrock ? a.id : '<a href="https://ja.namemc.com/search?q=' + a.id + '" target="_new">' + a.id + '</a>');
         const DONE = "<font color=green>済</font>";
         const YET = "<font color=red>未</font>";
-        text += "<tr><td>" + a.name + "</td><td>" + id_label + "</td><td>" + a.memo + "</td><td>" + (a.accept > 0 ? DONE : YET) + "</td><td>" + (a.nicked ? DONE : YET) + "</td><td><fieldset>";
+        
         let result = a.memo.match(RegExp("^\\[(OK|NG|ERROR)\\] "));
-        //console.log(result);
+
+        text += "<tr><td>" + a.name + "</td><td>" + id_label + "</td><td>" + a.memo + "</td>";
+
+        // 承諾カラム（ボタンの表示状態で承認状態を表現）
+        text += "<td>";
         if (result && result[1] == "OK") {
-            text += "<button onClick=\"if (confirm('承諾したままですが本当に削除しますか？')) { this.disabled=true; requestStart('delete?name=" + Encode(a.name) + "');}\">削除</button>";
-            text += "<button onClick=\"this.disabled=true; requestStart('deny?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "');\">拒否</button>";
+            // 承諾済みの場合は拒否ボタンのみ表示
+            text += '<button onclick="denyUser(\'' + Encode(a.name) + '\')">拒否</button>';
+        } else if (result && result[1] == "NG") {
+            // 拒否済みの場合は承諾ボタンのみ表示
+            const accept = bedrock ? "承諾（BE）" : "承諾（JE）";
+            text += '<button class="success" onclick="requestStart(\'accept?name=' + Encode(a.name) + '\'); this.disabled=true;">' + accept + '</button>';
         } else if (result && result[1] == "ERROR") {
-            // [ERROR] の時は削除のみで何も表示しない
-            text += "<button onClick=\"this.disabled=true; requestStart('delete?name=" + Encode(a.name) + "');\">削除</button>";
-        } else {            text += "<button onClick=\"this.disabled=true; requestStart('delete?name=" + Encode(a.name) + "');\">削除</button>";
-            const accept = bedrock ? "承諾(BE)" : "承諾(JE)"
-            text += "<button onClick=\"this.disabled=true; requestStart('accept?name=" + Encode(a.name) + "&id=" + Encode(a.id) + "');\">" + accept + "</button>";
+            // エラーの場合はエラー表示のみ
+            text += '<font color=red>エラー</font>';
+        } else {
+            // 未処理の場合は承諾・拒否両方のボタンを表示
+            const accept = bedrock ? "承諾（BE）" : "承諾（JE）";
+            text += '<button class="success" onclick="requestStart(\'accept?name=' + Encode(a.name) + '\'); this.disabled=true;">' + accept + '</button> ';
+            text += '<button onclick="denyUser(\'' + Encode(a.name) + '\')">拒否</button>';
         }
-        text += "</fieldset></td></tr>";
+        text += "</td>";
+
+        text += "<td>" + (a.nicked ? DONE : YET) + "</td>";
+
+        // 操作列（ドロップダウンメニュー - 削除のみ）
+        text += "<td>";
+        text += '<div class="dropdown-container">';
+        text += '<button class="dropdown-button" onclick="toggleDropdown(this)" alt="操作メニュー">';
+        text += '<span class="icon">⚙️</span><span class="dropdown-arrow">▼</span>';
+        text += '</button>';
+        text += '<div class="dropdown-menu">';
+
+        if (result && result[1] == "OK") {
+            // 承諾済みの場合
+            text += '<div class="dropdown-item danger" onclick="executeDropdownAction(\'delete-approved\', \'' + Encode(a.name) + '\')" title="承諾済みユーザー ' + escapeHtml(a.name) + ' を削除"><span class="icon">🗑</span>削除（承諾済み）</div>';
+        } else if (result && result[1] == "ERROR") {
+            // エラーの場合は削除のみ
+            text += '<div class="dropdown-item danger" onclick="executeDropdownAction(\'delete\', \'' + Encode(a.name) + '\')" title="ユーザー ' + escapeHtml(a.name) + ' を削除"><span class="icon">🗑</span>削除</div>';
+        } else {
+            // 通常の場合は削除のみ
+            text += '<div class="dropdown-item danger" onclick="executeDropdownAction(\'delete\', \'' + Encode(a.name) + '\')" title="ユーザー ' + escapeHtml(a.name) + ' を削除"><span class="icon">🗑</span>削除</div>';
+        }
+
+        text += '</div>';
+        text += '</div>';
+        text += "</td></tr>";
     }
     text += "</tbody></table>";
     if (g_old_text !== text) {
@@ -162,7 +237,27 @@ function updateList(aps)
 function setURL(channelUrl)
 {
     let e = document.getElementById('url');
-    if (e) e.value = channelUrl;
+    if (e) {
+        e.value = channelUrl;
+        // URL が外部から設定された際も追加ボタンの状態を更新
+        validateChannelAddButton();
+    }
+}
+
+function CroppedText(text, maxLength)
+{
+    if (text.length <= maxLength) return text;
+    return '<span class="cropped-text" title="' + escapeHtml(text) + '">' + escapeHtml(text.substring(0, maxLength) + '...') + '</span>';
+}
+
+// HTMLエスケープ用のヘルパー関数
+function escapeHtml(unsafe) {
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
 }
 
 function getChannelAnchor(channelUrl, active)
@@ -172,7 +267,7 @@ function getChannelAnchor(channelUrl, active)
     let title = channelUrl;
     const url = new URL(channelUrl)
     if (url?.hostname?.match(/youtube/)) {
-        platform = '<image src="images/youtube_social_icon_' + (active ? 'red' : 'dark') + '.png" alt="Youtube">';
+        platform = '<img src="images/youtube_social_icon_' + (active ? 'red' : 'dark') + '.png" alt="Youtube" class="platform-icon">';
         let pathname = url.pathname?.startsWith('/') ? url.pathname.substring(1) : '(不明)'
         if (pathname === 'watch') {
             title = 'ライブ配信'
@@ -180,10 +275,12 @@ function getChannelAnchor(channelUrl, active)
             title = pathname
         }
     } else if (url?.hostname?.match(/twitch\.tv/)) {
-        platform = '<image src="images/glitch_flat_' + (active ? 'purple' : 'gray') + '.png" alt="Twitch">';
+        platform = '<img src="images/glitch_flat_' + (active ? 'purple' : 'gray') + '.png" alt="Twitch" class="platform-icon">';
         title = url.pathname?.split('/')[1] ?? '(不明)'
     }
-    return '<a href="' + channelUrl + '" target="_new">' + platform + '</a>　<span onClick="setURL(\'' + channelUrl + '\')">' + title + '</span>';
+    // タイトルが長すぎる場合、省略する
+    title = CroppedText(title, 48);
+    return '<a href="' + channelUrl + '" target="_new" class="platform-link">' + platform + '</a><span onClick="setURL(\'' + channelUrl + '\')" class="platform-title">' + title + '</span>';
 }
 
 g_old_live_info_list_text = ""
@@ -198,40 +295,84 @@ function validateUrl(url)
     return url.match(/^https:\/\/.*(youtube\.com|twitch\.tv)\//) ? true : false;
 }
 
+// 色選択のドロップダウンメニューを作成
+function makeColorSelector()
+{
+    let text = "";
+    text += '<div class="dropdown-container">';
+    text += '<button class="dropdown-button color-selector" onclick="toggleDropdown(this)" style="background: linear-gradient(135deg, #efefef 0%, #ffffff 100%);">';
+    text += '<span id="sample_color"><span class="icon">🔄</span></span><span class="dropdown-arrow">▼</span>';
+    text += '</button>';
+    text += '<div class="dropdown-menu">';
+    text += '<div class="dropdown-item" onclick="selectColor(\'\')" title="自動"><span class="icon">🔄</span><span class="color-name">自動</span></div>';
+    for (const key in mc_colors) {
+        const colorBox = makeColorBox(key);
+        const displayName = mc_color_names[key] || key;
+        text += '<div class="dropdown-item" onclick="selectColor(\'' + key + '\')" title="' + escapeHtml(displayName) + ' (' + escapeHtml(key) + ')">' + colorBox + ' <span class="color-name">' + displayName + '</span></div>';
+    }
+    text += '</div>';
+    text += '</div>';
+    return text;
+}
+
+// 色選択の処理
+function selectColor(color) {
+    // 隠しinput要素に値を設定（フォーム送信用）
+    let hiddenInput = document.getElementById('color_hidden');
+    if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.id = 'color_hidden';
+        hiddenInput.name = 'color';
+        document.querySelector('form').appendChild(hiddenInput);
+    }
+    hiddenInput.value = color;
+    
+    // サンプル表示を更新
+    const sampleElement = document.getElementById('sample_color');
+    if (sampleElement) {
+        sampleElement.innerHTML = color ? makeColorBox(color) : '<span class="icon">🔄</span>';
+    }
+    
+    // ドロップダウンを閉じる
+    document.querySelectorAll('.dropdown-container.open').forEach(dropdown => {
+        dropdown.classList.remove('open');
+    });
+}
+
 function updateLiveInfoList(live_info_list)
 {
     let e = document.getElementById("live_info_list");
     if (!e) return;
     let text = "";
     text += "<table>\n";
-    text += "<thead><tr><th>操作</th><th>状態</th><th>色</th><th>チャンネル</th></tr></thead>\n";
+    text += '<thead><tr><th>操作</th><th>状態</th><th><span class="icon">🎨</span>色</th><th>';
+    text += '<a href="https://youtube.com/" target="_new"><img src="images/youtube_social_icon_red.png" alt="Youtube" class="platform-icon"></a>';
+    text += '<a href="https://twitch.tv/" target="_new"><img src="images/glitch_flat_purple.png" alt="Twitch" class="platform-icon"></a>';
+    text += "チャンネル</th></tr></thead>\n";
     text += '<tfoot><form><tr><td>';
-    text += '<button id="start" onclick="';
+    text += '<button id="start" disabled onclick="';
     text += "let url = document.getElementById('url').value;";
-    text += "let color = document.getElementById('color').value;";
+    text += "let color = document.getElementById('color_hidden') ? document.getElementById('color_hidden').value : '';";
     text += "if (!validateUrl(url)) { alert('無効なURLです'); return }";
     text += "this.disabled = true;";
     text += "requestStart('start?url=' + Encode(url) + (color ? '&color=' + Encode(color) : ''));";
     text += '">追加</button>';
     text += '</td><td></td><td align="center">';
-    text += '<span id="sample_color">自動</span><br>';
-    text += '<select id="color" name="color" onChange="document.getElementById(\'sample_color\').innerHTML = this.value ? makeColorBox(this.value) : \'自動\';">';
-    text += '<option value=""></option>';
-    for (const key in mc_colors) {
-        text += '<option value="' + key + '">' + key + '</option>';
-    }
-    text += '</select>';
+    text += makeColorSelector();
     text += '</td><td>';
-    text += '<label>URL:<br><input id="url" type="text" name="url" value="" size="48" autocomplete="off">';
+    text += '<label>URL:<br><input id="url" type="text" name="url" value="" size="48" placeholder="Youtube または Twitch のチャンネルの URL を入力" autocomplete="off" inputmode="url" spellcheck="false" style="ime-mode: disabled;" oninput="validateChannelAddButton()">';
     text += "</td></tr></form></tfoot>";
 
     text += "<tbody>\n";
     for (live of live_info_list) {
         const channelUrl = Encode(live.config.channelUrl);
         let channel_anchor = getChannelAnchor(live.config.channelUrl, live.inLive == 1);
-        let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_new">' + live.title + '</a>' : '';
+        let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_new">' + CroppedText(live.title, 48) + '</a>' : '';
         let color = live.config.color ? makeColorBox(live.config.color) : '-';
-        let controls = "<button onClick=\"if (confirm('削除しますか？')) { this.disabled=true; requestStart('remove?url=" + channelUrl + "');}\">削除</button>";
+        let controls = '';
+
+        // ライブ配信の状態に応じてボタンを表示
         switch (live.inLive) {
             case 1: // 1=ライブ中
                 controls += "<button onClick=\"this.disabled=true; requestStart('stop?url=" + channelUrl + "');\">停止</button>";
@@ -241,12 +382,25 @@ function updateLiveInfoList(live_info_list)
                 controls += "<button" + busy + " onClick=\"this.disabled=true; requestStart('start?url=" + channelUrl + "&color=" + live.config.color + "');\">開始</button>";
                 break;
         }
+
+        // ドロップダウンメニューを使用して安全な削除操作を提供
+        controls += '<div class="dropdown-container">';
+        controls += '<button class="dropdown-button" onclick="toggleDropdown(this)" alt="操作メニュー">';
+        controls += '<span class="icon">⚙️</span><span class="dropdown-arrow">▼</span>';
+        controls += '</button>';
+        controls += '<div class="dropdown-menu">';
+        controls += '<div class="dropdown-item danger" onclick="executeLiveControlAction(\'remove\', \'' + channelUrl + '\', \'' + live.config.color + '\')" title="ライブ配信サービス ' + escapeHtml(live.config.channelUrl) + ' を削除"><span class="icon">🗑</span>削除</div>';
+        controls += '</div>';
+        controls += '</div>';
+
         text += '<tr><td align="center">' + controls + '</td><td align="center">' + live.status + '</td><td align="center" valign="middle">' + color + '</td><td>' + channel_anchor + '<br>' + live_anchor + "</td></tr>\n";
     }
     text += "</tbody></table>\n";
     if (g_old_live_info_list_text !== text) {
         g_old_live_info_list_text = text;
         e.innerHTML = text;
+        // DOM更新後にボタンの状態を再評価（遅延なしで実行）
+        validateChannelAddButton();
     }
 }
 
@@ -289,11 +443,14 @@ function stop_update()
     }
 }
 
-function auto_update()
+function onBodyLoaded()
 {
     stop_update();  // 保険
     // WebSocketを使用してリアルタイム更新を行う
     connectWebSocket();
+    // 初期状態でボタンの有効/無効を評価（遅延なしで実行）
+    validateChannelAddButton();
+    validateAddButton();
 }
 
 function connectWebSocket()
@@ -366,6 +523,9 @@ function handleWebSocketUpdate(data)
                 e.disabled = false;
             }
         })
+        // WebSocket更新時のボタン状態再評価（遅延なしで実行）
+        validateChannelAddButton();
+        validateAddButton();
     }
 }
 
@@ -374,9 +534,146 @@ function logout()
     requestStart('logout');
 }
 
+// 拒否操作の実行
+function denyUser(userName) {
+    requestStart('deny?name=' + userName);
+}
+
+// ドロップダウンメニューの制御
+function toggleDropdown(element) {
+    const dropdown = element.closest('.dropdown-container');
+    const isOpen = dropdown.classList.contains('open');
+    
+    // 他のドロップダウンを閉じる
+    document.querySelectorAll('.dropdown-container.open').forEach(openDropdown => {
+        if (openDropdown !== dropdown) {
+            openDropdown.classList.remove('open');
+        }
+    });
+    
+    // 現在のドロップダウンを切り替え
+    if (isOpen) {
+        dropdown.classList.remove('open');
+    } else {
+        dropdown.classList.add('open');
+    }
+}
+
+// ドロップダウンメニューのアクション実行
+function executeDropdownAction(action, userName) {
+    // エンコードされた名前をデコードして表示用に使用
+    const displayName = Decode(userName);
+    console.log(`Executing action: ${action} for user: ${displayName}`);
+    switch(action) {
+        case 'delete':
+            // 未承認ユーザーの削除に確認は不要
+            requestStart('delete?name=' + userName);
+            break;
+        case 'delete-approved':
+            // 承諾済みユーザーの削除
+            if (confirm(`【承諾済みユーザーの削除】\n${displayName}さんは既に参加を承諾されています。\nこれは承諾したままこのリストから削除のみ行います。\n\n本当に削除しますか？`)) {
+                requestStart('delete?name=' + userName);
+            }
+            break;
+        default:
+            console.warn('Unknown action:', action);
+    }
+    
+    // ドロップダウンを閉じる
+    document.querySelectorAll('.dropdown-container.open').forEach(dropdown => {
+        dropdown.classList.remove('open');
+    });
+}
+
+// ライブ配信管理のドロップダウンアクション実行
+function executeLiveControlAction(action, channelUrl, color) {
+    console.log(`Executing live control action: ${action} for channel: ${channelUrl}`);
+    
+    switch(action) {
+        case 'remove':
+            if (confirm('【ライブ配信削除】\nこの配信監視を削除しますか？\n\nチャンネル情報と設定が失われます。')) {
+                requestStart('remove?url=' + channelUrl);
+            }
+            break;
+        default:
+            console.warn('Unknown live control action:', action);
+    }
+    
+    // ドロップダウンを閉じる
+    document.querySelectorAll('.dropdown-container.open').forEach(dropdown => {
+        dropdown.classList.remove('open');
+    });
+}
+
+// クリック外しでドロップダウンを閉じる
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.dropdown-container')) {
+        document.querySelectorAll('.dropdown-container.open').forEach(dropdown => {
+            dropdown.classList.remove('open');
+        });
+    }
+});
+
+// ID入力欄の半角文字制限
+document.addEventListener('DOMContentLoaded', function() {
+    const idInput = document.getElementById('id');
+    if (idInput) {
+        // 入力時の制限
+        idInput.addEventListener('input', function(e) {
+            // 全角文字を半角に変換し、許可されない文字を除去
+            let value = e.target.value;
+            // 全角英数字を半角に変換
+            value = value.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s) {
+                return String.fromCharCode(s.charCodeAt(0) - 0xFEE0);
+            });
+            // 半角英数字、アンダースコア、ハイフン、ピリオド以外を除去
+            value = value.replace(/[^A-Za-z0-9._-]/g, '');
+            e.target.value = value;
+        });
+        
+        // IME入力を無効化
+        idInput.addEventListener('compositionstart', function(e) {
+            e.preventDefault();
+        });
+    }
+});
+
+// チャンネル追加ボタンの有効/無効化を制御する関数
+function validateChannelAddButton() {
+    const urlInput = document.getElementById('url');
+    const startButton = document.getElementById('start');
+    
+    if (urlInput && startButton) {
+        const url = urlInput.value.trim();
+        const isValid = url.length > 0 && validateUrl(url);
+        const shouldBeDisabled = !isValid;
+        
+        // 状態が実際に変わる時のみ更新（不要な再描画を防ぐ）
+        if (startButton.disabled !== shouldBeDisabled) {
+            startButton.disabled = shouldBeDisabled;
+        }
+    }
+}
+
+// 参加希望者管理の追加ボタンの有効/無効化を制御する関数
+function validateAddButton() {
+    const nameInput = document.getElementById('name');
+    const addButton = document.getElementById('add');
+    
+    if (nameInput && addButton) {
+        const name = nameInput.value.trim();
+        const shouldBeDisabled = name.length === 0;
+        
+        // 状態が実際に変わる時のみ更新（不要な再描画を防ぐ）
+        if (addButton.disabled !== shouldBeDisabled) {
+            addButton.disabled = shouldBeDisabled;
+        }
+    }
+}
+
 </script>
 </head>
-<body onload="auto_update()">
+<body onload="onBodyLoaded()">
 <table style="border-width: 0">
     <tr>
         <th style="border-width: 0; padding: 0; font-size: x-large;">
@@ -402,10 +699,10 @@ function logout()
 <fieldset>
     <legend>参加希望者の管理</legend>
     <form>
-        <label>名前：<input type="text" id="name" name="name" value="" size="12" autocomplete="off"></label>
-        <label>ＩＤ：<input type="text" id="id"   name="id"   value="" size="12" autocomplete="off"></label>
+        <label>名前：<input type="text" id="name" name="name" value="" size="12" autocomplete="off" oninput="validateAddButton()"></label>
+        <label>ＩＤ：<input type="text" id="id" name="id" value="" size="12" autocomplete="off" inputmode="latin" pattern="[A-Za-z0-9._-]*" spellcheck="false" style="ime-mode: disabled;" placeholder="例: .player123"></label>
         <label>メモ：<input type="text" id="memo" name="memo" value="" size="12" autocomplete="off"></label>
-        <button id="add" onclick="requestStart('add?name=' + Encode(this.form.name.value) + '&id=' + Encode(this.form.id.value) + '&memo=' + Encode(this.form.memo.value)); this.form.name.value = this.form.id.value = this.form.memo.value = ''; this.disabled=true">追加</button>
+        <button id="add" disabled onclick="requestStart('add?name=' + Encode(this.form.name.value) + '&id=' + Encode(this.form.id.value) + '&memo=' + Encode(this.form.memo.value)); this.form.name.value = this.form.id.value = this.form.memo.value = ''; this.disabled=true">追加</button>
         　<button id="clear" onclick="requestStart('clear'); this.disabled=true">全削除</button>
         　<button id="reset" onclick="requestStart('reset'); this.disabled=true">全拒否</button>
     </form>

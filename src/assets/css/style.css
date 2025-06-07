@@ -82,3 +82,415 @@ hr {
   padding: 1px;     /* 境界線とテキストの間に余白を入れる (オプション) */
   display: inline-block; /* 幅と高さを設定できるようにする (オプション) */
 }
+
+/* モダンなドロップダウンメニュー */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-btn {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dropdown-btn:hover {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+}
+
+.dropdown-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.dropdown-btn.danger {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.dropdown-btn.danger:hover {
+  background-color: #f1b0b7;
+  border-color: #ef8b92;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  color: #6c757d;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: white;
+  min-width: 120px;
+  max-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  z-index: 1000;
+  top: 100%;
+  left: 0;
+  margin-top: 2px;
+}
+
+.dropdown.open .dropdown-content {
+  display: block;
+}
+
+.dropdown-item {
+  color: #212529;
+  padding: 8px 12px;
+  text-decoration: none;
+  display: block;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  transition: background-color 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropdown-item:hover {
+  background-color: #f8f9fa;
+}
+
+.dropdown-item.danger {
+  color: #dc3545;
+}
+
+.dropdown-item.danger:hover {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background-color: #dee2e6;
+  margin: 4px 0;
+}
+
+/* モダンなドロップダウンメニューのスタイル */
+.dropdown-container {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    vertical-align: middle;
+    min-height: 30px;
+    box-sizing: border-box;
+}
+
+.dropdown-button:hover {
+    background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.12);
+    transform: translateY(-0.5px);
+}
+
+.dropdown-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 色選択ボタン専用スタイル */
+.dropdown-button.color-selector {
+    min-height: 30px;
+    justify-content: center;
+}
+
+.dropdown-button.color-selector #sample_color {
+    display: flex;
+    align-items: center;
+    margin-right: 4px;
+}
+
+.dropdown-arrow {
+    font-size: 12px;
+    transition: transform 0.3s ease;
+}
+
+.dropdown-container.open .dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    min-width: 120px;
+    max-width: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.3s ease;
+}
+
+.dropdown-container.open .dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 12px;
+    color: #374151;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.dropdown-item:hover {
+    background-color: #f8fafc;
+    color: #1f2937;
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+    border-radius: 0 0 8px 8px;
+}
+
+.dropdown-item:first-child {
+    border-radius: 8px 8px 0 0;
+}
+
+.dropdown-item.danger {
+    color: #dc2626;
+}
+
+.dropdown-item.danger:hover {
+    background-color: #fef2f2;
+    color: #b91c1c;
+}
+
+.dropdown-item.success {
+    color: #059669;
+}
+
+.dropdown-item.success:hover {
+    background-color: #f0fdf4;
+    color: #047857;
+}
+
+/* アイコン用のスタイル */
+.icon {
+    font-size: 14px;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+/* プラットフォームアイコンのスタイル */
+.platform-icon {
+    height: 16px;
+    width: auto;
+    vertical-align: middle;
+    margin-right: 4px;
+    display: inline-block;
+    max-width: 24px;
+}
+
+.platform-link {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+}
+
+.platform-title {
+    vertical-align: middle;
+    cursor: pointer;
+    margin-left: 2px;
+    line-height: 16px;
+}
+
+.platform-title:hover {
+    text-decoration: underline;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .dropdown-menu {
+        left: auto;
+        right: 0;
+    }
+}
+
+/* 通常のボタンスタイル改善 */
+button {
+  background-color: #007bff;
+  border: 1px solid #007bff;
+  border-radius: 4px;
+  color: white;
+  padding: 6px 12px;
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin: 2px;
+  vertical-align: middle;
+  min-height: 30px;
+  box-sizing: border-box;
+}
+
+button:hover {
+  background-color: #0056b3;
+  border-color: #004085;
+}
+
+button:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+button.secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+
+button.secondary:hover {
+  background-color: #545b62;
+  border-color: #4e555b;
+}
+
+button.success {
+  background-color: #28a745;
+  border-color: #28a745;
+}
+
+button.success:hover {
+  background-color: #1e7e34;
+  border-color: #1c7430;
+}
+
+button.danger {
+  background-color: #dc3545;
+  border-color: #dc3545;
+}
+
+button.danger:hover {
+  background-color: #c82333;
+  border-color: #bd2130;
+}
+
+/* カスタムスクロールバーのスタイル */
+.dropdown-content::-webkit-scrollbar,
+.dropdown-menu::-webkit-scrollbar {
+    width: 6px;
+}
+
+.dropdown-content::-webkit-scrollbar-track,
+.dropdown-menu::-webkit-scrollbar-track {
+    background: #f8f9fa;
+    border-radius: 3px;
+}
+
+.dropdown-content::-webkit-scrollbar-thumb,
+.dropdown-menu::-webkit-scrollbar-thumb {
+    background: #dee2e6;
+    border-radius: 3px;
+}
+
+.dropdown-content::-webkit-scrollbar-thumb:hover,
+.dropdown-menu::-webkit-scrollbar-thumb:hover {
+    background: #adb5bd;
+}
+
+/* Firefox用スクロールバー */
+.dropdown-content,
+.dropdown-menu {
+    scrollbar-width: thin;
+    scrollbar-color: #dee2e6 #f8f9fa;
+}
+
+/* 色選択ドロップダウン項目の特別なスタイル */
+.dropdown-item .color-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 半角入力専用のinput要素スタイル */
+input[inputmode="latin"],
+input[inputmode="url"] {
+    ime-mode: disabled;
+    -webkit-ime-mode: disabled;
+    -moz-ime-mode: disabled;
+    -ms-ime-mode: disabled;
+}
+
+/* ツールチップのスタイリング（ブラウザがサポートしている場合） */
+[title] {
+    position: relative;
+    cursor: help;
+}
+
+/* 省略されたテキストを含む要素の特別なスタイリング */
+span[title] {
+    cursor: default;
+    border-bottom: 1px dotted #999;
+}
+
+/* ドロップダウン項目のツールチップ */
+.dropdown-item[title] {
+    cursor: pointer;
+}
+
+/* 省略表示されているテキストの視覚的なヒント */
+.cropped-text {
+    border-bottom: 1px dotted #ccc;
+    cursor: help;
+}
+
+/* レスポンシブ対応 */

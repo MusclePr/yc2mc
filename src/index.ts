@@ -371,7 +371,7 @@ class YoutubeLiveStream extends LiveStream {
   {
     console.log("<終了> reason:" + reason)
     this.info.inLive = 2
-    this.info.status = (reason == undefined ? '' : '：' + reason) + "　" + this.makeLiveAnchor()
+    this.info.status = reason || '終了済'
     let cmd: string = this.info.config.rconCommands?.onEnd ?? RCON_SEND_ON_LIVE_END
     onEnd(cmd)
   }
@@ -484,7 +484,7 @@ class TwitchLiveStream extends LiveStream {
   {
     console.log("<終了>")
     this.info.inLive = 2
-    this.info.status = "　" + this.makeLiveAnchor()
+    this.info.status = reason || '終了済'
     let cmd: string = this.info.config.rconCommands?.onEnd ?? RCON_SEND_ON_LIVE_END
     onEnd(cmd)
   }
