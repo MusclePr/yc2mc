@@ -108,6 +108,9 @@ function DownloadFromSpigot()
 # メイン処理
 #==========================================================================
 
+# 常にスクリプトのあるディレクトリで実行
+cd "$(dirname "$0")"
+
 if [ ! -f .env ]; then
     echo ".env file was not found."
     exit 1

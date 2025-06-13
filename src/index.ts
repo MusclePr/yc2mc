@@ -39,7 +39,7 @@ const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'qzw78q5id4u1rm
 const LOBBY_HOST = process.env.LOBBY_HOST || "" // ロビーのホスト名
 const GATE_LOCATION = process.env.GATE_LOCATION || "" // ゲートの座標を指定する場合は、"x y z rotation pitch"を指定する。例："-100 64 200 180 0"
 // ニックネームを設定するプラグインの設定
-const NICKNAME_YAML = process.env.NICKNAME_YAML || "'/data/plugins/NicknameRequired/nicknames.yml'" // ニックネームを設定するプラグイン名
+const NICKNAME_YAML = process.env.NICKNAME_YAML || "/data/plugins/NicknameRequired/nicknames.yml" // ニックネームを設定するプラグイン名
 const NICKNAME_SET_CMD = process.env.NICKNAME_SET_CMD || "nickset" // ニックネームを設定するコマンド名
 const NICKNAME_DEL_CMD = process.env.NICKNAME_DEL_CMD || "nickset" // ニックネームを削除するコマンド名（NicknameRequiredは、nickset と共通）
 
@@ -776,6 +776,45 @@ function ApArray_allKick()
   ApArray_clear() // 参加希望者リストを空にする
 }
 
+// 前回の更新日時
+let g_ApArray_datePrev : Date | null = null
+// 参加申請済みの参加者の状態を更新する
+async function ApArray_updateAll(force : boolean = false) : Promise<boolean>
+{
+  // 前回から3秒以内の要求は無視します
+  if (!force && g_ApArray_datePrev && (new Date().getTime() - g_ApArray_datePrev.getTime()) < 3000) {
+    return false
+  }
+  g_ApArray_datePrev = new Date() // 更新日時を記録
+  let bModified : boolean = false // 更新されたかどうか
+  try {
+    for (let i = 0; i < aps.length; i++) {
+      if (!aps[i].nicked) {
+        // 未ログイン
+        const id: string = aps[i].id.replace(/^\./, "__bedrock__")
+        if (id === KEYWORD_FAILED) continue
+        const cmd: string = "yq '.players." + id + ".flag' " + NICKNAME_YAML
+        //console.log(cmd)
+        let flag = await ExecCommand(cmd)
+        if (flag.length > 0) {
+          flag = flag.trimEnd()
+          //console.log(flag)
+          if (flag == "1") {
+            const BE : boolean = (aps[i].id.charAt(0) == '.')
+            aps[i].memo = !BE ? "[OK] Java版" : "[OK] 統合版"
+            aps[i].accept = BE ? 2 : 1
+            aps[i].nicked = true
+            bModified = true
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.log(e)
+  }
+  return bModified
+}
+
 // 絵文字除去
 const RemoveEmoji = (in_value : string) => {
   const ranges = [
@@ -972,7 +1011,7 @@ function onChat(name: string, text: string, color?: MinecraftColor)
 }
 
 // チャットのチェック
-function onChatCheck(name: string, text: string)
+async function onChatCheck(name: string, text: string)
 {
   let bModified : boolean = false
   if (KEYWORD_CANCEL && text.match(RegExp(KEYWORD_CANCEL))) {
@@ -1008,6 +1047,9 @@ function onChatCheck(name: string, text: string)
         })
       }
     }
+  }
+  if (await ApArray_updateAll()) {
+    bModified = true
   }
   if (bModified) {
     // WebSocketクライアントに状態更新を通知
@@ -1116,31 +1158,7 @@ app.get('/remove', (req : express.Request, res : express.Response) => {
 })
 
 app.get('/status', (req : express.Request, res : express.Response) => {
-  try {
-    for (let i = 0; i < aps.length; i++) {
-      if (!aps[i].nicked) {
-        // 未ログイン
-        const id: string = aps[i].id.replace(/^\./, "__bedrock__")
-        if (id === KEYWORD_FAILED) continue
-        const cmd: string = "yq '.players." + id + ".flag' " + NICKNAME_YAML
-        //console.log(cmd)
-        ExecCommand(cmd).then((flag : string) => {
-          if (flag.length > 0) {
-            flag = flag.trimEnd()
-            //console.log(flag)
-            if (flag == "1") {
-              const BE : boolean = (aps[i].id.charAt(0) == '.')
-              aps[i].memo = !BE ? "[OK] Java版" : "[OK] 統合版"
-              aps[i].accept = BE ? 2 : 1
-              aps[i].nicked = true
-            }
-          }
-        })
-      }
-    }
-  } catch (e) {
-    console.log(e)
-  }
+  ApArray_updateAll(true) // 参加希望者リストを更新
 
   let live_info_list = g_liveManager.getLiveInfoList()
   const statusData = { "request": "status", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }

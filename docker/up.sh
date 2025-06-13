@@ -1,4 +1,7 @@
 #!/bin/bash
+# 常にスクリプトのあるディレクトリで実行
+cd "$(dirname "$0")"
+
 source .env
 trap ./down.sh INT TERM
 if [ -e "./${SERVER1}/data/.stop-from-mcui" ]; then
