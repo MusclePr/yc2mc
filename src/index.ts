@@ -213,12 +213,79 @@ function broadcastUpdate(data: any) {
   })
 }
 
+// 定期的な参加者ステータスチェック
+let periodicStatusCheckInterval: NodeJS.Timeout | null = null
+
+// 定期的なステータスチェック機能を開始
+function startPeriodicStatusCheck() {
+  if (periodicStatusCheckInterval) {
+    clearInterval(periodicStatusCheckInterval)
+  }
+  
+  periodicStatusCheckInterval = setInterval(async () => {
+    try {
+      // 参加者リストが空の場合はチェックをスキップ
+      if (aps.length === 0) {
+        return
+      }
+      
+      console.log("[DEBUG] Periodic status check started, checking", aps.length, "participants")
+      const wasModified = await ApArray_updateAll(false)
+      
+      if (wasModified) {
+        console.log("[DEBUG] Participant states were updated, broadcasting to WebSocket clients")
+        
+        // 変更があった場合は全クライアントに更新を送信
+        const live_info_list = g_liveManager.getLiveInfoList()
+        const statusData = {
+          request: "status",
+          rcon: inRcon,
+          live_info_list: live_info_list,
+          aps: aps
+        }
+        
+        broadcastUpdate(statusData)
+      } else {
+        console.log("[DEBUG] No participant state changes detected")
+      }
+    } catch (error) {
+      console.error("[ERROR] Periodic status check failed:", error)
+    }
+  }, 10000) // 10秒間隔でチェック
+  
+  console.log("[INFO] Periodic status check started (every 10 seconds)")
+}
+
+// 定期的なステータスチェック機能を停止
+function stopPeriodicStatusCheck() {
+  if (periodicStatusCheckInterval) {
+    clearInterval(periodicStatusCheckInterval)
+    periodicStatusCheckInterval = null
+    console.log("[INFO] Periodic status check stopped")
+  }
+}
+
 // 8080番ポートでサーバーを待ちの状態にする。
 // またサーバーが起動したことがわかるようにログを出力する
 server.listen(HTTP_PORT, () => {
   console.log("Youtube to Minecraft Chat サービス起動中");
+  
+  // 定期的な参加者ステータスチェックを開始
+  startPeriodicStatusCheck();
 })
 
+// アプリケーション終了時のクリーンアップ
+process.on('SIGINT', () => {
+  console.log('\n[INFO] Shutting down gracefully...');
+  stopPeriodicStatusCheck();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n[INFO] Received SIGTERM, shutting down gracefully...');
+  stopPeriodicStatusCheck();
+  process.exit(0);
+});
 
 // ====================================================================
 // Rcon の設定
@@ -731,15 +798,50 @@ function ApArray_add(a : Applicants) : void
     a.memo = KEYWORD_FAILED_MEMO
   }
   let idx : number = ApArray_findIndex(a.name)
+  let shouldCheckNickname = false;
+  
   if (idx < 0) {
     console.log("追加[" + aps.length + "] { id: " + a.id + ", name: " + a.name + ", memo: " + a.memo + ", accept: " + a.accept + ", nicked: " + a.nicked + "}")
     aps.push(a) // 追加
+    // 承認済みプレイヤーの場合は即座にニックネーム状態をチェック
+    shouldCheckNickname = (a.accept === 1);
   } else {
     a.accept = aps[idx].accept // 状態を引き継ぐ
     a.nicked = aps[idx].nicked // 状態を引き継ぐ
     console.log("更新[" + idx + "] { id: " + a.id + ", name: " + a.name + ", memo: " + a.memo + ", accept: " + a.accept + ", nicked: " + a.nicked + "}")
     aps[idx] = a // 更新
     console.log(a)
+    // 承認済みプレイヤーの場合は即座にニックネーム状態をチェック
+    shouldCheckNickname = (a.accept === 1);
+  }
+  
+  // 承認済みプレイヤーの場合、即座にニックネーム状態を確認
+  if (shouldCheckNickname) {
+    console.log(`[ApArray_add] 承認済みプレイヤー ${a.name} のニックネーム状態を即座に確認します`);
+    // 非同期でニックネーム状態をチェックし、変更があればWebSocketで通知
+    setImmediate(() => {
+      const beforeState = JSON.parse(JSON.stringify(aps)); // 状態のコピー
+      ApArray_updateAll();
+      const afterState = aps;
+      
+      // 状態に変更があったかチェック
+      let hasChanges = false;
+      for (let i = 0; i < beforeState.length; i++) {
+        if (i < afterState.length && 
+            (beforeState[i].nicked !== afterState[i].nicked || 
+             beforeState[i].accept !== afterState[i].accept)) {
+          hasChanges = true;
+          break;
+        }
+      }
+      
+      if (hasChanges) {
+        console.log(`[ApArray_add] ニックネーム状態に変更が検出されました - WebSocketで通知`);
+        const live_info_list = g_liveManager.getLiveInfoList();
+        const responseData = { "request": "status", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps };
+        broadcastUpdate(responseData);
+      }
+    });
   }
 }
 
@@ -794,11 +896,11 @@ async function ApArray_updateAll(force : boolean = false) : Promise<boolean>
         const id: string = aps[i].id.replace(/^\./, "__bedrock__")
         if (id === KEYWORD_FAILED) continue
         const cmd: string = "yq '.players." + id + ".flag' " + NICKNAME_YAML
-        //console.log(cmd)
+        //console.log("[DEBUG] Checking nickname status for:", aps[i].name, "id:", id, "cmd:", cmd)
         let flag = await ExecCommand(cmd)
         if (flag.length > 0) {
           flag = flag.trimEnd()
-          //console.log(flag)
+          //console.log("[DEBUG] Trimmed flag for", aps[i].name, ":", flag)
           if (flag == "1") {
             const BE : boolean = (aps[i].id.charAt(0) == '.')
             aps[i].memo = !BE ? "[OK] Java版" : "[OK] 統合版"

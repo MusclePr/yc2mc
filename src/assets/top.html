@@ -12,6 +12,95 @@ var g_interval = 0;
 var g_busy = false;
 var g_timeout = 0;
 var g_websocket = null;
+var g_server_down = false; // サーバーダウン状態フラグ
+var g_connection_failures = 0; // 連続接続失敗カウント
+var g_max_failures = 5; // 最大連続失敗回数
+
+// デバッグログ制御設定
+const DEBUG_CONFIG = {
+    enabled: true,  // デバッグログの有効/無効
+    categories: {
+        general: true,     // 一般的なデバッグログ
+        websocket: true,   // WebSocket関連のログ
+        rcon: true,        // RCON関連のログ
+        buttons: true,     // ボタン検証関連のログ
+        requests: true,    // HTTP リクエスト関連のログ
+        dom: true         // DOM 更新関連のログ
+    }
+};
+
+// ログ制御の使用方法:
+// 1. 全てのデバッグログを無効化: DEBUG_CONFIG.enabled = false;
+// 2. 特定カテゴリのみ無効化: DEBUG_CONFIG.categories.websocket = false;
+// 3. 運用環境では DEBUG_CONFIG.enabled = false; に設定することを推奨
+
+// デバッグログ出力関数
+function debugLog(category, message, ...args) {
+    if (DEBUG_CONFIG.enabled && DEBUG_CONFIG.categories[category]) {
+        console.log(`[DEBUG:${category.toUpperCase()}]`, message, ...args);
+    }
+}
+
+// 警告ログ出力関数
+function warnLog(category, message, ...args) {
+    if (DEBUG_CONFIG.enabled && DEBUG_CONFIG.categories[category]) {
+        console.warn(`[WARN:${category.toUpperCase()}]`, message, ...args);
+    }
+}
+
+// エラーログ出力関数（常に出力）
+function errorLog(category, message, ...args) {
+    console.error(`[ERROR:${category.toUpperCase()}]`, message, ...args);
+}
+
+// サーバーダウン状態を設定する関数
+function setServerDown(reason) {
+    if (g_server_down) return; // 既にダウン状態の場合は何もしない
+    
+    g_server_down = true;
+    errorLog('general', 'Server appears to be down:', reason);
+    
+    // すべての処理を停止
+    stop_update();
+    if (g_websocket) {
+        g_websocket.close();
+        g_websocket = null;
+    }
+    if (g_timeout) {
+        clearTimeout(g_timeout);
+        g_timeout = 0;
+    }
+    g_busy = false;
+    
+    // UI状態を更新
+    updateRconActive(-3); // 新しい状態: サーバーダウン
+    updateLiveActive(-3, "サーバーが応答しません。手動でページをリロードしてください。");
+    
+    // すべてのボタンを無効化
+    document.querySelectorAll("input, button, select").forEach(e => { 
+        e.disabled = true; 
+    });
+    
+    // リロードボタンのみ有効化
+    showReloadPrompt();
+}
+
+// リロードプロンプトを表示
+function showReloadPrompt() {
+    const liveElement = document.getElementById("live");
+    if (liveElement) {
+        liveElement.innerHTML = 'ライブ：<font color=red>サーバーが応答しません</font> <button onclick="document.location.reload()" style="background-color: #ff4444; color: white; font-weight: bold; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">ページをリロード</button>';
+    }
+}
+
+// 接続成功時にサーバーダウン状態をリセット
+function resetServerDown() {
+    if (g_server_down) {
+        g_server_down = false;
+        g_connection_failures = 0;
+        debugLog('general', 'Server connection restored, resetting server down state');
+    }
+}
 
 const mc_colors = {
     black: "black", // #000000
@@ -89,46 +178,85 @@ function Decode(str)
 
 function onLoadResponse()
 {
+    debugLog('requests', 'onLoadResponse called, status:', this.status, 'readyState:', this.readyState);
+    
     if (g_timeout) {
         clearTimeout(g_timeout);
         g_timeout = 0;
     }
 
+    // 成功レスポンスの場合、接続失敗カウントをリセット
+    if (this.status >= 200 && this.status < 300) {
+        resetServerDown();
+    }
+
     //console.log(this.responseText);
-    let res = JSON.parse(this.responseText);
-    //console.log(res);
-    if (res.live_info_list != undefined) {
-        g_live_info_list = res.live_info_list;
-        updateLiveInfoList(res.live_info_list);
-    }
-    if (res.aps != undefined || res.result != undefined) {
-        g_list = res.aps;
-        updateList(res.aps);
-    }
-    if (res.rcon != undefined) {
-        if (g_rcon_active != res.rcon) {
-            g_rcon_active = res.rcon;
-            //console.log("rcon:", g_rcon_active);
-            updateRconActive(g_rcon_active);
-            updateLiveActive(g_rcon_active);
+    try {
+        let res = JSON.parse(this.responseText);
+        debugLog('requests', 'Response parsed successfully:', {
+            hasLiveInfoList: res.live_info_list !== undefined,
+            hasAps: res.aps !== undefined,
+            hasResult: res.result !== undefined,
+            hasRcon: res.rcon !== undefined,
+            rconValue: res.rcon,
+            currentRconActive: g_rcon_active
+        });
+        
+        //console.log(res);
+        if (res.live_info_list != undefined) {
+            g_live_info_list = res.live_info_list;
+            updateLiveInfoList(res.live_info_list);
         }
+        if (res.aps != undefined || res.result != undefined) {
+            g_list = res.aps;
+            updateList(res.aps);
+        }
+        if (res.rcon != undefined) {
+            if (g_rcon_active != res.rcon) {
+                debugLog('rcon', 'RCON status changed:', g_rcon_active, '->', res.rcon);
+                g_rcon_active = res.rcon;
+                //console.log("rcon:", g_rcon_active);
+                updateRconActive(g_rcon_active);
+                updateLiveActive(g_rcon_active);
+            }
+        }
+        
+        if (g_rcon_active == 2) {
+            debugLog('rcon', 'RCON active, enabling controllers and validating buttons');
+            disable_controllers.forEach((id) => {
+                let e = document.getElementById(id);
+                if (e && e.disabled != false) {
+                    debugLog('rcon', 'Enabling controller:', id, 'current disabled:', e.disabled);
+                    e.disabled = false;
+                }
+            })
+            // サーバー接続時にボタン状態を再評価（遅延なしで実行）
+            validateChannelAddButton();
+            validateAddButton();
+        } else {
+            debugLog('rcon', 'RCON not active (', g_rcon_active, '), controllers remain disabled');
+        }
+    } catch (error) {
+        errorLog('requests', 'Failed to parse response:', error, 'Response text:', this.responseText);
+        // レスポンス解析失敗も接続失敗としてカウント
+        handleConnectionFailure();
     }
     
-    if (g_rcon_active == 2) {
-        disable_controllers.forEach((id) => {
-            let e = document.getElementById(id);
-            if (e && e.disabled != false) {
-                e.disabled = false;
-            }
-        })
-        // サーバー接続時にボタン状態を再評価（遅延なしで実行）
-        validateChannelAddButton();
-        validateAddButton();
-    }
     g_busy = false;
     if (this.status == 401) {
+        debugLog('requests', '401 status, reloading page');
         // logout to reload
         document.location.reload();
+    }
+}
+
+// 接続失敗を処理する関数
+function handleConnectionFailure() {
+    g_connection_failures++;
+    warnLog('general', 'Connection failure count:', g_connection_failures, '/', g_max_failures);
+    
+    if (g_connection_failures >= g_max_failures) {
+        setServerDown(`${g_max_failures} consecutive connection failures`);
     }
 }
 
@@ -141,11 +269,28 @@ function requestTimeout()
         clearTimeout(g_timeout);
         g_timeout = 0;
     }
+    // タイムアウト時にg_busyを解放
+    g_busy = false;
+    warnLog('requests', 'Request timeout - g_busy reset to false');
+    
+    // タイムアウトも接続失敗としてカウント
+    handleConnectionFailure();
 }
 
 function requestStart(uri)
 {
-    if (g_busy) return false;
+    debugLog('requests', 'requestStart called with URI:', uri, 'g_busy:', g_busy, 'g_server_down:', g_server_down);
+    
+    // サーバーダウン状態の場合はリクエストを拒否
+    if (g_server_down) {
+        warnLog('requests', 'Request blocked - server is down');
+        return false;
+    }
+    
+    if (g_busy) {
+        debugLog('requests', 'Request blocked - already busy');
+        return false;
+    }
     g_busy = true;
 
     //console.log(uri);
@@ -153,11 +298,32 @@ function requestStart(uri)
         let req = new XMLHttpRequest();
         //req.addEventListener("progress", onProgressResponse);
         req.addEventListener("load", onLoadResponse);
+        req.addEventListener("error", function() {
+            errorLog('requests', 'XMLHttpRequest error occurred');
+            g_busy = false; // エラー時にg_busyを解放
+            if (g_timeout) {
+                clearTimeout(g_timeout);
+                g_timeout = 0;
+            }
+            // ネットワークエラーも接続失敗としてカウント
+            handleConnectionFailure();
+        });
+        req.addEventListener("abort", function() {
+            warnLog('requests', 'XMLHttpRequest aborted');
+            g_busy = false; // 中断時にg_busyを解放
+            if (g_timeout) {
+                clearTimeout(g_timeout);
+                g_timeout = 0;
+            }
+        });
         req.open("GET", uri);
         req.send();
+        debugLog('requests', 'Request sent, setting timeout');
         g_timeout = setTimeout(requestTimeout, 6000);
     } catch (e) {
-        console.log(e);
+        errorLog('requests', 'Request failed:', e);
+        g_busy = false; // 例外時にg_busyを解放
+        handleConnectionFailure(); // 例外も接続失敗としてカウント
         requestTimeout();
         return false;
     }
@@ -190,14 +356,14 @@ function updateList(aps)
         } else if (result && result[1] == "NG") {
             // 拒否済みの場合は承諾ボタンのみ表示
             const accept = bedrock ? "承諾（BE）" : "承諾（JE）";
-            text += '<button class="success" onclick="requestStart(\'accept?name=' + Encode(a.name) + '\'); this.disabled=true;">' + accept + '</button>';
+            text += '<button class="success" onclick="debugLog(\'buttons\', \'Accept button clicked for:\', \'' + Encode(a.name) + '\'); requestStart(\'accept?name=' + Encode(a.name) + '\'); this.disabled=true; debugLog(\'buttons\', \'Accept button disabled for:\', \'' + Encode(a.name) + '\');">' + accept + '</button>';
         } else if (result && result[1] == "ERROR") {
             // エラーの場合はエラー表示のみ
             text += '<font color=red>エラー</font>';
         } else {
             // 未処理の場合は承諾・拒否両方のボタンを表示
             const accept = bedrock ? "承諾（BE）" : "承諾（JE）";
-            text += '<button class="success" onclick="requestStart(\'accept?name=' + Encode(a.name) + '\'); this.disabled=true;">' + accept + '</button> ';
+            text += '<button class="success" onclick="debugLog(\'buttons\', \'Accept button clicked for:\', \'' + Encode(a.name) + '\'); requestStart(\'accept?name=' + Encode(a.name) + '\'); this.disabled=true; debugLog(\'buttons\', \'Accept button disabled for:\', \'' + Encode(a.name) + '\');">' + accept + '</button> ';
             text += '<button onclick="denyUser(\'' + Encode(a.name) + '\')">拒否</button>';
         }
         text += "</td>";
@@ -397,25 +563,44 @@ function updateLiveInfoList(live_info_list)
     }
     text += "</tbody></table>\n";
     if (g_old_live_info_list_text !== text) {
+        debugLog('dom', 'updateLiveInfoList: DOM content changed, updating and validating buttons');
         g_old_live_info_list_text = text;
         e.innerHTML = text;
-        // DOM更新後にボタンの状態を再評価（遅延なしで実行）
-        validateChannelAddButton();
+        // DOM更新後にボタンの状態を再評価（DOM要素が作成されるまで少し待つ）
+        setTimeout(() => {
+            validateChannelAddButton();
+        }, 10);
+    } else {
+        debugLog('dom', 'updateLiveInfoList: No content change detected');
     }
 }
 
 function updateRconActive(flag)
 {
+    debugLog('rcon', 'updateRconActive called with flag:', flag);
     let e = document.getElementById("rcon");
     if (e) {
         let text = "不明";
         if (flag == 2) text = "<font color=green>接続</font>";
         else if (flag == 1) text = "<font color=gold>認証中</font>";
         else if (flag == 0) text = "<font color=gray>切断</font>";
+        else if (flag == -3) text = "<font color=red>サーバーダウン</font>";
         e.innerHTML = "サーバー：" + text;
+        debugLog('rcon', 'RCON status updated to:', text);
+    } else {
+        warnLog('rcon', 'RCON element not found');
     }
-    // すべてのコントローラを無効状態にする
-    if (flag != 2) document.querySelectorAll("input, button, select").forEach(e => { e.disabled = true; });
+    
+    // すべてのコントローラを無効状態にする（サーバーダウン時も含む）
+    if (flag != 2) {
+        debugLog('rcon', 'Disabling all controllers due to RCON flag:', flag);
+        document.querySelectorAll("input, button, select").forEach(e => { 
+            if (!e.disabled) {
+                debugLog('rcon', 'Disabling element:', e.id || e.tagName, 'type:', e.type);
+            }
+            e.disabled = true; 
+        });
+    }
 }
 
 function updateLiveActive(flag, forceText)
@@ -424,13 +609,20 @@ function updateLiveActive(flag, forceText)
     if (e) {
         let text = "不明";
         if (flag == 2) text = "";
-        else if (flag <= 1) text = "<font color=gray>起動待ち</font>";
+        else if (flag == 1) text = "<font color=gray>起動待ち</font>";
+        else if (flag == 0) text = "<font color=gray>起動待ち</font>";
+        else if (flag == -3) text = "<font color=red>サーバーダウン</font>";
         e.innerHTML = "ライブ：" + (forceText?.length > 0 ? forceText : text);
     }
 }
 
 function update()
 {
+    // サーバーダウン状態の場合はリクエストしない
+    if (g_server_down) {
+        debugLog('general', 'Skipping update - server is down');
+        return;
+    }
     // WebSocketがある場合は状態確認のみ、ない場合はポーリング
     requestStart('status');
 }
@@ -445,27 +637,73 @@ function stop_update()
 
 function onBodyLoaded()
 {
+    debugLog('general', 'onBodyLoaded called');
     stop_update();  // 保険
     // WebSocketを使用してリアルタイム更新を行う
     connectWebSocket();
-    // 初期状態でボタンの有効/無効を評価（遅延なしで実行）
-    validateChannelAddButton();
-    validateAddButton();
+    // 初期状態でボタンの有効/無効を評価（DOM要素が確実に存在するまで待つ）
+    debugLog('buttons', 'Initial button validation');
+    
+    // DOM要素が存在するまでリトライ
+    const retryValidation = (retryCount = 0) => {
+        const maxRetries = 10;
+        if (retryCount >= maxRetries) {
+            warnLog('buttons', 'Max retries reached for initial button validation');
+            return;
+        }
+        
+        const urlInput = document.getElementById('url');
+        const nameInput = document.getElementById('name');
+        
+        if (urlInput && nameInput) {
+            validateChannelAddButton();
+            validateAddButton();
+        } else {
+            debugLog('buttons', `Initial validation retry ${retryCount + 1}/${maxRetries}, missing elements:`, {
+                urlInput: !!urlInput,
+                nameInput: !!nameInput
+            });
+            setTimeout(() => retryValidation(retryCount + 1), 50);
+        }
+    };
+    
+    retryValidation();
 }
 
 function connectWebSocket()
 {
+    if (g_server_down) {
+        debugLog('websocket', 'Skipping WebSocket connection - server is down');
+        return;
+    }
+    
     if (g_websocket && g_websocket.readyState === WebSocket.OPEN) {
+        debugLog('websocket', 'WebSocket already connected, skipping connection attempt');
         return; // 既に接続済み
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = protocol + '//' + window.location.host;
+    debugLog('websocket', 'Attempting WebSocket connection to:', wsUrl);
     
     g_websocket = new WebSocket(wsUrl);
     
     g_websocket.onopen = function(event) {
-        console.log('WebSocket connected');
+        debugLog('websocket', 'WebSocket connected successfully');
+        
+        // WebSocket接続成功時の状態クリア
+        resetServerDown();
+        if (g_busy) {
+            debugLog('websocket', 'WebSocket connected - clearing g_busy state');
+            g_busy = false;
+        }
+        
+        if (g_timeout) {
+            debugLog('websocket', 'WebSocket connected - clearing timeout');
+            clearTimeout(g_timeout);
+            g_timeout = 0;
+        }
+        
         // 接続成功時は従来のポーリングを停止
         stop_update();
     };
@@ -473,33 +711,83 @@ function connectWebSocket()
     g_websocket.onmessage = function(event) {
         try {
             const data = JSON.parse(event.data);
+            debugLog('websocket', 'WebSocket message received, calling handleWebSocketUpdate');
             handleWebSocketUpdate(data);
         } catch (e) {
-            console.error('WebSocket message parse error:', e);
+            errorLog('websocket', 'WebSocket message parse error:', e, 'Raw data:', event.data);
         }
     };
     
     g_websocket.onclose = function(event) {
-        console.log('WebSocket disconnected');
+        debugLog('websocket', 'WebSocket disconnected, code:', event.code, 'reason:', event.reason);
         g_websocket = null;
-        // WebSocket接続が切れた場合はポーリングにフォールバック
-        setTimeout(() => {
-            connectWebSocket(); // 再接続を試行
-        }, 3000);
-        // フォールバック用のポーリングを開始
-        g_interval = setInterval(update, 3000);
+        
+        // WebSocket切断時にg_busyをリセット（HTTP通信が失敗している可能性があるため）
+        if (g_busy) {
+            warnLog('websocket', 'WebSocket disconnected while g_busy=true, resetting g_busy');
+            g_busy = false;
+        }
+        
+        // タイムアウトもクリア
+        if (g_timeout) {
+            clearTimeout(g_timeout);
+            g_timeout = 0;
+        }
+        
+        // WebSocket切断も接続失敗としてカウント
+        handleConnectionFailure();
+        
+        // サーバーダウン状態でなければ再接続を試行
+        if (!g_server_down) {
+            // WebSocket接続が切れた場合はポーリングにフォールバック
+            setTimeout(() => {
+                debugLog('websocket', 'Attempting WebSocket reconnection in 3 seconds');
+                connectWebSocket(); // 再接続を試行
+            }, 3000);
+            // フォールバック用のポーリングを開始
+            debugLog('websocket', 'Starting fallback polling');
+            g_interval = setInterval(update, 3000);
+        }
     };
     
     g_websocket.onerror = function(error) {
-        console.error('WebSocket error:', error);
+        errorLog('websocket', 'WebSocket error:', error);
         g_websocket = null;
-        // エラー時もポーリングにフォールバック
-        g_interval = setInterval(update, 3000);
+        
+        // WebSocketエラー時にg_busyをリセット
+        if (g_busy) {
+            warnLog('websocket', 'WebSocket error while g_busy=true, resetting g_busy');
+            g_busy = false;
+        }
+        
+        // タイムアウトもクリア
+        if (g_timeout) {
+            clearTimeout(g_timeout);
+            g_timeout = 0;
+        }
+        
+        // WebSocketエラーも接続失敗としてカウント
+        handleConnectionFailure();
+        
+        // サーバーダウン状態でなければポーリングにフォールバック
+        if (!g_server_down) {
+            // エラー時もポーリングにフォールバック
+            debugLog('websocket', 'Starting fallback polling due to WebSocket error');
+            g_interval = setInterval(update, 3000);
+        }
     };
 }
 
 function handleWebSocketUpdate(data)
 {
+    debugLog('websocket', 'WebSocket update received:', {
+        hasLiveInfoList: data.live_info_list !== undefined,
+        hasAps: data.aps !== undefined,
+        hasRcon: data.rcon !== undefined,
+        rconValue: data.rcon,
+        currentRconActive: g_rcon_active
+    });
+    
     if (data.live_info_list !== undefined) {
         g_live_info_list = data.live_info_list;
         updateLiveInfoList(data.live_info_list);
@@ -510,6 +798,7 @@ function handleWebSocketUpdate(data)
     }
     if (data.rcon !== undefined) {
         if (g_rcon_active != data.rcon) {
+            debugLog('websocket', 'WebSocket RCON status changed:', g_rcon_active, '->', data.rcon);
             g_rcon_active = data.rcon;
             updateRconActive(g_rcon_active);
             updateLiveActive(g_rcon_active);
@@ -517,15 +806,19 @@ function handleWebSocketUpdate(data)
     }
     
     if (g_rcon_active == 2) {
+        debugLog('websocket', 'WebSocket: RCON active, enabling controllers and validating buttons');
         disable_controllers.forEach((id) => {
             let e = document.getElementById(id);
             if (e && e.disabled != false) {
+                debugLog('websocket', 'WebSocket: Enabling controller:', id, 'current disabled:', e.disabled);
                 e.disabled = false;
             }
         })
         // WebSocket更新時のボタン状態再評価（遅延なしで実行）
         validateChannelAddButton();
         validateAddButton();
+    } else {
+        debugLog('websocket', 'WebSocket: RCON not active (', g_rcon_active, '), controllers remain disabled');
     }
 }
 
@@ -639,19 +932,56 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // チャンネル追加ボタンの有効/無効化を制御する関数
-function validateChannelAddButton() {
+function validateChannelAddButton(retryCount = 0) {
+    debugLog('buttons', 'validateChannelAddButton called, retry:', retryCount);
     const urlInput = document.getElementById('url');
     const startButton = document.getElementById('start');
+    
+    // DOM要素の存在を詳細にチェック
+    debugLog('buttons', 'DOM element check:', {
+        urlInputExists: !!urlInput,
+        urlInputType: urlInput ? urlInput.type : 'not found',
+        urlInputParent: urlInput ? urlInput.parentElement?.tagName : 'not found',
+        startButtonExists: !!startButton,
+        startButtonType: startButton ? startButton.type : 'not found',
+        startButtonParent: startButton ? startButton.parentElement?.tagName : 'not found',
+        liveInfoListExists: !!document.getElementById('live_info_list'),
+        documentReadyState: document.readyState
+    });
     
     if (urlInput && startButton) {
         const url = urlInput.value.trim();
         const isValid = url.length > 0 && validateUrl(url);
         const shouldBeDisabled = !isValid;
         
+        debugLog('buttons', 'Channel add button validation:', {
+            url: url,
+            urlLength: url.length,
+            isValid: isValid,
+            shouldBeDisabled: shouldBeDisabled,
+            currentDisabled: startButton.disabled,
+            willChange: startButton.disabled !== shouldBeDisabled
+        });
+        
         // 状態が実際に変わる時のみ更新（不要な再描画を防ぐ）
         if (startButton.disabled !== shouldBeDisabled) {
+            debugLog('buttons', 'Changing channel add button disabled state:', startButton.disabled, '->', shouldBeDisabled);
             startButton.disabled = shouldBeDisabled;
         }
+    } else {
+        // 要素が見つからない場合、最大3回まで短時間後にリトライ
+        if (retryCount < 3) {
+            debugLog('buttons', `Channel add button validation retry ${retryCount + 1}/3`);
+            setTimeout(() => validateChannelAddButton(retryCount + 1), 20);
+            return;
+        }
+        
+        warnLog('buttons', 'Channel add button validation failed - missing elements after retries:', {
+            urlInput: !!urlInput,
+            startButton: !!startButton,
+            allInputs: Array.from(document.querySelectorAll('input')).map(i => ({id: i.id, type: i.type})),
+            allButtons: Array.from(document.querySelectorAll('button')).map(b => ({id: b.id, text: b.textContent?.substring(0, 20)}))
+        });
     }
 }
 
@@ -700,7 +1030,7 @@ function validateAddButton() {
     <legend>参加希望者の管理</legend>
     <form>
         <label>名前：<input type="text" id="name" name="name" value="" size="12" autocomplete="off" oninput="validateAddButton()"></label>
-        <label>ＩＤ：<input type="text" id="id" name="id" value="" size="12" autocomplete="off" inputmode="latin" pattern="[A-Za-z0-9._-]*" spellcheck="false" style="ime-mode: disabled;" placeholder="例: .player123"></label>
+        <label>ＩＤ：<input type="text" id="id" name="id" value="" size="12" autocomplete="off" inputmode="latin" pattern="[A-Za-z0-9._\-]*" spellcheck="false" style="ime-mode: disabled;" placeholder="例: .player123"></label>
         <label>メモ：<input type="text" id="memo" name="memo" value="" size="12" autocomplete="off"></label>
         <button id="add" disabled onclick="requestStart('add?name=' + Encode(this.form.name.value) + '&id=' + Encode(this.form.id.value) + '&memo=' + Encode(this.form.memo.value)); this.form.name.value = this.form.id.value = this.form.memo.value = ''; this.disabled=true">追加</button>
         　<button id="clear" onclick="requestStart('clear'); this.disabled=true">全削除</button>
