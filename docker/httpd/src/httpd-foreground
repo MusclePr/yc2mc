@@ -1,0 +1,16 @@
+#!/bin/bash
+
+source /etc/apache2/envvars
+
+SITES=${SITES_ENABLE:-`ls -1 /etc/apache2/sites-available/`}
+
+a2ensite ${SITES}
+
+trap 'echo "please wait for stop."; service apache2 stop; echo "stopped."; exit' 1 2 3 15 WINCH
+service apache2 start
+service cron start
+
+while :
+do
+  sleep 1
+done

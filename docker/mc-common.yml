@@ -1,6 +1,6 @@
 services:
   mc:
-    image: MusclePr/minecraft-server
+    image: ghcr.io/musclepr/minecraft-server:latest
     tty: true
     stdin_open: true
     environment:

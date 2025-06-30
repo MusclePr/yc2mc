@@ -19,7 +19,7 @@ services:
   # プロキシーサーバー
   mc-proxy:
     container_name: mc-proxy
-    image: MusclePr/mc-proxy
+    image: ghcr.io/musclepr/mc-proxy
     ports:
       - 25565:25565
       - 19132:19132/udp
@@ -75,8 +75,6 @@ services:
   mc-server1-live:
     container_name: mc-${SERVER1}-live
     image: MusclePr/yc2mc:latest
-    ports:
-     - 8081:8080
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./${SERVER1}/data:/data:ro"
@@ -102,8 +100,6 @@ services:
   mc-server1-ui:
     container_name: mc-${SERVER1}-ui
     image: MusclePr/mcui
-    ports:
-      - 8080:8080
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./${SERVER1}/data:/data"
@@ -118,5 +114,17 @@ services:
       MCUI_USERNAME: "${SERVER1_MCUI_USERNAME}"
       MCUI_PASSWORD: "${SERVER1_MCUI_PASSWORD}"
       YC2MC_CONTAINER: mc-${SERVER1}-live
-      YC2MC_URL: "http://localhost:8081/"
+      YC2MC_URL: "http://localhost/mcui/live/"
 
+  httpd:
+    container_name: httpd
+    image: ghcr.io/musclepr/httpd:latest
+    build:
+      context: ./httpd
+      dockerfile: Dockerfile
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./httpd/sites-available:/etc/apache2/sites-available
+      - ./httpd/htdocs:/var/www/html

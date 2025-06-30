@@ -683,7 +683,7 @@ function connectWebSocket()
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = protocol + '//' + window.location.host;
+    const wsUrl = protocol + '//' + window.location.host + '/mcui/live/api/'; 
     debugLog('websocket', 'Attempting WebSocket connection to:', wsUrl);
     
     g_websocket = new WebSocket(wsUrl);
