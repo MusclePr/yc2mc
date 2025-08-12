@@ -28,8 +28,8 @@ function Download()
         OPTS=("-z" "${DST}")
         echo -n "Check & "
     fi
-    echo "Download: ${DST}"
-    curl -RLs "${SRC}" -o "${DST}" ${OPTS[*]}
+    echo "Download: ${SRC}"
+    curl -RL "${SRC}" -o "${DST}" ${OPTS[*]}
     local -i -r fsize="$(stat -c %s ${DST})"
     if [ ${fsize} -lt 64 ]; then
         cat "${DST}"
@@ -152,6 +152,7 @@ Download "https://download.geysermc.org/v2/projects/floodgate/versions/latest/bu
 #
 DEST_DIR="assets/lobby/plugins"
 mkdir -p "${DEST_DIR}"
+Download "https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
 #Download "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
 DownloadFromModrinth advanced-portals simplescoreboard
 # https://www.spigotmc.org/resources/placeholderapi.6245/
@@ -163,7 +164,8 @@ DownloadFromSpigot 6245
 DEST_DIR="assets/${SERVER1}/plugins"
 mkdir -p "${DEST_DIR}"
 # 依存関係上必要なプラグイン
-Download "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
+Download "https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
+#Download "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
 # ニックネームプラグイン
 SRC_FILE=~/dev/NicknameRequired/build/libs/NicknameRequired-1.0-SNAPSHOT.jar
 if [ -f "${SRC_FILE}" ]; then

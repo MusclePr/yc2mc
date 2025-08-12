@@ -1017,7 +1017,7 @@ function SetNickName(id: string, nick: string) : boolean
 async function SendLobbyCommand(cmd: string) : Promise<string>
 {
   if (LOBBY_HOST && cmd.length > 0) {
-    let command : string = 'docker exec ' + LOBBY_HOST + ' rcon-cli ' + cmd
+    let command : string = "docker exec " + LOBBY_HOST + " rcon-cli '" + cmd + "'"
     console.log(command)
     return ExecCommand(command)
   }
@@ -1027,11 +1027,11 @@ async function SendLobbyCommand(cmd: string) : Promise<string>
 async function SendAcceptMessage(id: string, name: string, memo: string) : Promise<boolean>
 {
   if (LOBBY_HOST) {
-    await SendLobbyCommand('tellraw ' + id + ' \'{"text":"参加希望が承諾されました。","color":"green"}\'')
-    await SendLobbyCommand('tellraw ' + id + ' \'{"text":"ようこそ、' + name + 'さん","color":"white"}\'')
-    await SendLobbyCommand('tellraw ' + id + ' \'{"text":"ゲートをお通りください。","color":"white"}\'')
-    await SendLobbyCommand('title ' + id + ' subtitle \'{"text":"ゲートをお通りください。","color":"white"}\'')
-    await SendLobbyCommand('title ' + id + ' title \'{"text":"承諾されました！","color":"green"}\'')
+    await SendLobbyCommand('tellraw ' + id + ' {"text":"参加希望が承諾されました。","color":"green"}')
+    await SendLobbyCommand('tellraw ' + id + ' {"text":"ようこそ、' + name + 'さん","color":"white"}')
+    await SendLobbyCommand('tellraw ' + id + ' {"text":"ゲートをお通りください。","color":"white"}')
+    await SendLobbyCommand('title ' + id + ' subtitle {"text":"ゲートをお通りください。","color":"white"}')
+    await SendLobbyCommand('title ' + id + ' title {"text":"承諾されました！","color":"green"}')
     if (GATE_LOCATION.length > 0) {
       await SendLobbyCommand('tp ' + id + ' ' + GATE_LOCATION)
     }
