@@ -37,7 +37,7 @@ const MC_YOUTUBE_NAME_COLOR : string = process.env.MC_YOUTUBE_NAME_COLOR || DEFA
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || 'ids1p64r28f77znlfway7vz7j6xfev';
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'qzw78q5id4u1rmkqb81w7xjgjenn93';
 const LOBBY_HOST = process.env.LOBBY_HOST || "" // ロビーのホスト名
-const GATE_LOCATION = process.env.GATE_LOCATION || "" // ゲートの座標を指定する場合は、"x y z rotation pitch"を指定する。例："-100 64 200 180 0"
+const TP_COMMAND = process.env.TP_COMMAND || "" // ゲートの入り口にテレポートするコマンドを設定する。例："mvtp @s a:mk"
 // ニックネームを設定するプラグインの設定
 const NICKNAME_YAML = process.env.NICKNAME_YAML || "/data/plugins/NicknameRequired/nicknames.yml" // ニックネームを設定するプラグイン名
 const NICKNAME_SET_CMD = process.env.NICKNAME_SET_CMD || "nickset" // ニックネームを設定するコマンド名
@@ -1032,8 +1032,9 @@ async function SendAcceptMessage(id: string, name: string, memo: string) : Promi
     await SendLobbyCommand('tellraw ' + id + ' {"text":"ゲートをお通りください。","color":"white"}')
     await SendLobbyCommand('title ' + id + ' subtitle {"text":"ゲートをお通りください。","color":"white"}')
     await SendLobbyCommand('title ' + id + ' title {"text":"承諾されました！","color":"green"}')
-    if (GATE_LOCATION.length > 0) {
-      await SendLobbyCommand('tp ' + id + ' ' + GATE_LOCATION)
+    if (TP_COMMAND.length > 0) {
+      let tp_cmd: string = TP_COMMAND.replace(/@s/g, id) // @s を id に置換
+      await SendLobbyCommand(tp_cmd)
     }
     return true
   }

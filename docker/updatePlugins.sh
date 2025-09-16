@@ -154,7 +154,7 @@ DEST_DIR="assets/lobby/plugins"
 mkdir -p "${DEST_DIR}"
 Download "https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
 #Download "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
-DownloadFromModrinth advanced-portals simplescoreboard
+DownloadFromModrinth advanced-portals simplescoreboard multiverse-core
 # https://www.spigotmc.org/resources/placeholderapi.6245/
 DownloadFromSpigot 6245
 

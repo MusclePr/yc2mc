@@ -92,7 +92,7 @@ services:
       TICKET_SERVER: "mc-lobby-ticket:8000"
       # LOBBY
       LOBBY_HOST: mc-lobby
-      GATE_LOCATION: "2 0 5 180 0"
+      TP_COMMAND: "mvtp @s a:server1" # ゲートの入り口にテレポートするコマンド。事前にアンカー設定しておくこと。/mv anchor set server1
     depends_on:
       - mc-server1
       - mc-lobby-ticket
