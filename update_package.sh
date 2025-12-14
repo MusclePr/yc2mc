@@ -3,7 +3,7 @@ export NODE_OPTIONS=--no-deprecation
 packages=(youtube-chat twitch-chat)
 
 for p in "${packages[@]}"; do
-    src="$(ls -1t ../${p}/${p}-v*.tgz | head -n 1)"
+    src="$(ls -1t ../${p}/${p}-*.tgz | head -n 1)"
     dst="./$(basename ${src})"
     
     # 既存のパッケージファイルと比較

@@ -1,4 +1,4 @@
-FROM node:lts-alpine
+FROM node:24-alpine
 # パッケージインストール
 RUN apk -U --no-cache add tzdata musl-locales bash su-exec
 RUN apk -U --no-cache add docker-cli knock curl jq yq
@@ -15,7 +15,7 @@ WORKDIR /app
 COPY --chown=node:node dist/index.js .
 COPY --chown=node:node src/assets/ ./assets/
 COPY --chown=node:node package.json ./
-COPY --chown=node:node youtube-chat-v2.2.0.tgz ./
+COPY --chown=node:node youtube-chat-2.2.0.tgz ./
 COPY --chown=node:node twitch-chat-v1.0.0.tgz ./
 RUN yarn install --production
 RUN yarn cache clean

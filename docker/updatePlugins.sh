@@ -164,8 +164,9 @@ DownloadFromSpigot 6245
 DEST_DIR="assets/${SERVER1}/plugins"
 mkdir -p "${DEST_DIR}"
 # 依存関係上必要なプラグイン
-Download "https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
-#Download "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
+#Download "https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
+Download "https://github.com/dmulloy2/ProtocolLib/releases/download/dev-build/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
+
 # ニックネームプラグイン
 SRC_FILE=~/dev/NicknameRequired/build/libs/NicknameRequired-1.0-SNAPSHOT.jar
 if [ -f "${SRC_FILE}" ]; then

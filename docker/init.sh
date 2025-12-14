@@ -263,6 +263,13 @@ if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d ${SERVER1}/data ]; then
 
     echo "Setting up ..."
 
+    # Docker イメージの更新
+    echo "Pulling docker images ..."
+    docker pull ghcr.io/musclepr/mc-proxy
+    docker pull MusclePr/ticket:latest
+    docker pull MusclePr/mcui
+    docker pull ghcr.io/musclepr/minecraft-server:latest
+
     mkdir -p proxy/data lobby/data ${SERVER1}/data ${SERVER1}/live ${SERVER1}/plugins
 
     # プラグインの更新
