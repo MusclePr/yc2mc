@@ -21,7 +21,7 @@ services:
     container_name: mc-proxy
     image: ghcr.io/musclepr/mc-proxy
     ports:
-      - 25565:25565
+      - 25565:25577
       - 19132:19132/udp
     environment:
       TYPE: "VELOCITY"
@@ -124,7 +124,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - 80:80
-      - 443:443
     volumes:
       - ./httpd/sites-available:/etc/apache2/sites-available
       - ./httpd/htdocs:/var/www/html

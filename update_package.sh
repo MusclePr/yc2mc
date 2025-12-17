@@ -9,7 +9,10 @@ for p in "${packages[@]}"; do
     # 既存のパッケージファイルと比較
     if [ ! -f "${dst}" ] || ! cmp -s "${src}" "${dst}"; then
         cp -auv "${src}" ./
-        yarn remove "${p}"
+        # package.json に存在する場合のみ削除
+        if grep -q "\"${p}\":" package.json; then
+            yarn remove "${p}"
+        fi
         yarn add "file:${dst}"
     else
         echo "スキップ: ${p} (変更なし)"

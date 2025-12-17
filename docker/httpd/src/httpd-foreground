@@ -1,16 +1,21 @@
 #!/bin/bash
+set -e
 
 source /etc/apache2/envvars
 
-SITES=${SITES_ENABLE:-`ls -1 /etc/apache2/sites-available/`}
+# サイトの有効化
+# SITES_ENABLEが指定されていなければ、sites-available内のすべての設定ファイルを有効化
+if [ -z "$SITES_ENABLE" ]; then
+    for conf in /etc/apache2/sites-available/*.conf; do
+        [ -e "$conf" ] && a2ensite $(basename "$conf")
+    done
+else
+    a2ensite $SITES_ENABLE
+fi
 
-a2ensite ${SITES}
+# PIDファイルが残っていると起動に失敗する場合があるため削除
+rm -f /var/run/apache2/apache2.pid
 
-trap 'echo "please wait for stop."; service apache2 stop; echo "stopped."; exit' 1 2 3 15 WINCH
-service apache2 start
-service cron start
-
-while :
-do
-  sleep 1
-done
+# Apacheをフォアグラウンドで実行
+# execを使用することで、このシェルスクリプトのプロセスがApacheに置き換わります
+exec apache2 -DFOREGROUND
