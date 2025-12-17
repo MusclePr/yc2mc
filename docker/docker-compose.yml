@@ -118,12 +118,10 @@ services:
 
   httpd:
     container_name: httpd
-    image: ghcr.io/musclepr/httpd:latest
-    build:
-      context: ./httpd
-      dockerfile: Dockerfile
+    image: nginx:alpine
+    init: true
     ports:
       - 80:80
     volumes:
-      - ./httpd/sites-available:/etc/apache2/sites-available
-      - ./httpd/htdocs:/var/www/html
+      - ./httpd/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./httpd/htdocs:/usr/share/nginx/html:ro
