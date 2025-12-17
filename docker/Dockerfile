@@ -1,4 +1,4 @@
-FROM node:24-alpine
+FROM node:25-alpine
 # パッケージインストール
 RUN apk -U --no-cache add tzdata musl-locales bash su-exec
 RUN apk -U --no-cache add docker-cli knock curl jq yq
