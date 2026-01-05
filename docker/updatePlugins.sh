@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 #---------------------------------------------------------
 # ヘルパー関数群
 #---------------------------------------------------------
@@ -23,13 +25,14 @@ function Download()
 {
     local -r SRC="${1}"
     local -r DST="${2}"
+    local -a OPTS=()
     # 出力ファイルが存在していたら、タイムスタンプ比較を行い、必要に応じてダウンロードする
     if [ -f "${DST}" ]; then
         OPTS=("-z" "${DST}")
         echo -n "Check & "
     fi
     echo "Download: ${SRC}"
-    curl -RL "${SRC}" -o "${DST}" ${OPTS[*]}
+    curl -sRL "${SRC}" -o "${DST}" ${OPTS[*]}
     local -i -r fsize="$(stat -c %s ${DST})"
     if [ ${fsize} -lt 64 ]; then
         cat "${DST}"
@@ -50,7 +53,8 @@ function DownloadFromModrinth()
     # Modrinth API のベース URL
     local -r MODRINTH_API="https://api.modrinth.com/v2/project"
     # ダウンロードするプラグインの ID（Modrinth の URL から取得可能）
-    PLUGINS=($@)
+    local -a PLUGINS=($@) OPTS
+    local PLUGIN VERSION_ID DOWNLOAD_URL DST
     for PLUGIN in "${PLUGINS[@]}"; do
         echo "Modrinth から $PLUGIN の最新バージョンを取得しています..."
         # 最新のバージョン情報を取得
@@ -61,7 +65,7 @@ function DownloadFromModrinth()
             if [ -n "${DOWNLOAD_URL}" ]; then
                 DST="${DEST_DIR}/$(basename ${DOWNLOAD_URL})"
                 # 出力ファイルが存在していたら、タイムスタンプ比較を行い、必要に応じてダウンロードする
-                OPTS=""
+                OPTS=()
                 if [ -f "${DST}" ]; then
                     OPTS=("-z" "${DST}")
                     echo -n "Check & "
@@ -80,19 +84,19 @@ function DownloadFromModrinth()
 function DownloadFromSpigot()
 {
     # SpigotMC のプラグインページ URL（プラグイン ID を指定）
-    SPIGOT_V01_API="https://api.spigotmc.org/simple/0.1/index.php?action=getResource&id=${1}"
+    local -r SPIGOT_V01_API="https://api.spigotmc.org/simple/0.1/index.php?action=getResource&id=${1}"
     #SPIGOT_V2_API="https://api.spiget.org/v2/resources/${1}/versions/latest"
 
     echo "SpigotMC からプラグインの最新バージョンを取得しています..."
-    TITLE=$(curl -sL "${SPIGOT_V01_API}" | jq -r '.title')
+    local -r TITLE=$(curl -sL "${SPIGOT_V01_API}" | jq -r '.title')
     # ダウンロード URL を取得
     #VERSION=$(curl -sL "${SPIGOT_V01_API}" | jq -r '.current_version')
-    DOWNLOAD_URL="https://api.spiget.org/v2/resources/${1}/download"
+    local -r DOWNLOAD_URL="https://api.spiget.org/v2/resources/${1}/download"
 
     if [ -n "${DOWNLOAD_URL}" ]; then
-        DST="${DEST_DIR}/${TITLE}.jar"
+        local -r DST="${DEST_DIR}/${TITLE}.jar"
         # 出力ファイルが存在していたら、タイムスタンプ比較を行い、必要に応じてダウンロードする
-        OPTS=""
+        local -a OPTS=()
         if [ -f "${DST}" ]; then
             OPTS=("-z" "${DST}")
             echo -n "Check & "
@@ -101,6 +105,22 @@ function DownloadFromSpigot()
         curl -sRL "${DOWNLOAD_URL}" -o "${DST}" ${OPTS[*]}
     else
         echo "プラグインの URL を取得できませんでした。"
+    fi
+}
+
+function RemoveOldFiles()
+{
+    local -r DIR="${1}"
+    local -r PREFIX="${2}"
+    local -r KEEP="${3:-1}"
+    local FILES
+    # 先頭の最新のファイルだけ残して、あとは削除
+    # tail -n +X は X 行目以降を出力する
+    FILES=$(ls -1t ${DIR}/${PREFIX}* 2> /dev/null | tail -n +$((KEEP + 1)))
+    if [ -n "${FILES}" ]; then
+        echo "Removing old files:"
+        echo "${FILES}"
+        rm -v ${FILES}
     fi
 }
 
@@ -146,17 +166,23 @@ Download "${URL}" "${DEST_DIR}/ViaBackwards.jar"
 # 統合版のためのプラグイン
 Download "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest/downloads/velocity" "${DEST_DIR}/Geyser-Velocity.jar"
 Download "https://download.geysermc.org/v2/projects/floodgate/versions/latest/builds/latest/downloads/velocity" "${DEST_DIR}/floodgate-velocity.jar"
+DownloadFromModrinth advanced-portals
+RemoveOldFiles "${DEST_DIR}" "Advanced-Portals"
 
 #
 # ダウンロード処理（lobby 用）
 #
 DEST_DIR="assets/lobby/plugins"
 mkdir -p "${DEST_DIR}"
-Download "https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
-#Download "https://ci.dmulloy2.net/job/ProtocolLib/lastSuccessfulBuild/artifact/build/libs/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
-DownloadFromModrinth advanced-portals simplescoreboard multiverse-core
+Download "https://github.com/dmulloy2/ProtocolLib/releases/download/dev-build/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
+DownloadFromModrinth simplescoreboard multiverse-core
 # https://www.spigotmc.org/resources/placeholderapi.6245/
 DownloadFromSpigot 6245
+SRC_FILE=$(ls -1t assets/proxy/plugins/Advanced-Portals*.jar 2> /dev/null | head -n 1)
+cp -auv "${SRC_FILE}" "${DEST_DIR}/${SRC_FILE##*/}"
+RemoveOldFiles "${DEST_DIR}" "Advanced-Portals"
+RemoveOldFiles "${DEST_DIR}" "SimpleScoreBoard"
+RemoveOldFiles "${DEST_DIR}" "multiverse-core"
 
 #
 # ダウンロード処理（server1 用）
@@ -164,8 +190,7 @@ DownloadFromSpigot 6245
 DEST_DIR="assets/${SERVER1}/plugins"
 mkdir -p "${DEST_DIR}"
 # 依存関係上必要なプラグイン
-#Download "https://github.com/dmulloy2/ProtocolLib/releases/download/5.4.0/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
-Download "https://github.com/dmulloy2/ProtocolLib/releases/download/dev-build/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
+cp -auv "assets/lobby/plugins/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
 
 # ニックネームプラグイン
 SRC_FILE=~/dev/NicknameRequired/build/libs/NicknameRequired-1.0-SNAPSHOT.jar
