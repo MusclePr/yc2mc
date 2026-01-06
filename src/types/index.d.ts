@@ -23,6 +23,12 @@ export type LiveStreamConfig = {
 export interface LiveStreamConfigArray extends Array<LiveStreamConfig> {
 }
 
+// 全体設定
+export type GlobalConfig = {
+  whitelistControlEnabled: boolean
+  streams: LiveStreamConfig[]
+}
+
 // ライブ情報
 export type LiveStreamInfo = {
   config: LiveStreamConfig
@@ -30,6 +36,8 @@ export type LiveStreamInfo = {
   title: string // ライブ配信中のタイトル
   status: string // 画面に表示する状態の文字列
   inLive: 0 | 1 | 2 | -1  // ライブ状態：0=ライブ待ち,1=ライブ中,2=ライブ終了,-1=エラー
+  whitelistStatus: "none" | "linked" | "linkable"
+  lastSeenAliveAt: number // 最後に生存確認された時刻 (UNIXタイムスタンプ)
 }
 
 export interface LiveStreamInfoArray extends Array<LiveStreamInfo> {

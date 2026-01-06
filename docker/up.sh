@@ -1,7 +1,7 @@
 #!/bin/bash
 # 常にスクリプトのあるディレクトリで実行
 cd "$(dirname "$0")"
-
+set -e
 source .env
 trap ./down.sh INT TERM
 if [ -e "./${SERVER1}/data/.stop-from-mcui" ]; then
@@ -12,6 +12,7 @@ if [ -e "./${SERVER1}/data/.stop-from-mcui" ]; then
   docker compose logs -f && ./down.sh
 else
   docker compose down
+  ../build.sh
   docker compose build --build-arg DEBUG="${1}" ${BUILD_TARGET} && \
   docker compose up && ./down.sh
 fi

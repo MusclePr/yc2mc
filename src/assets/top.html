@@ -15,6 +15,21 @@ var g_websocket = null;
 var g_server_down = false; // サーバーダウン状態フラグ
 var g_connection_failures = 0; // 連続接続失敗カウント
 var g_max_failures = 5; // 最大連続失敗回数
+var g_whitelist_control_enabled = true; // ホワイトリスト連動設定
+
+// ホワイトリスト連動設定の切り替え
+function toggleWhitelistControl(enabled) {
+    debugLog('requests', 'toggleWhitelistControl:', enabled);
+    const xhr = new XMLHttpRequest();
+    // クエリパラメータとして送信
+    xhr.open('GET', 'whitelist-control?enabled=' + (enabled ? 'true' : 'false'), true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+            debugLog('requests', 'Whitelist control updated:', xhr.responseText);
+        }
+    };
+    xhr.send();
+}
 
 // デバッグログ制御設定
 const DEBUG_CONFIG = {
@@ -199,8 +214,15 @@ function onLoadResponse()
             hasResult: res.result !== undefined,
             hasRcon: res.rcon !== undefined,
             rconValue: res.rcon,
-            currentRconActive: g_rcon_active
+            currentRconActive: g_rcon_active,
+            hasWhitelistControlEnabled: res.whitelistControlEnabled !== undefined
         });
+
+        if (res.whitelistControlEnabled !== undefined) {
+            g_whitelist_control_enabled = res.whitelistControlEnabled;
+            const toggle = document.getElementById('whitelist-control-toggle');
+            if (toggle) toggle.checked = g_whitelist_control_enabled;
+        }
         
         //console.log(res);
         if (res.live_info_list != undefined) {
@@ -508,6 +530,7 @@ function selectColor(color) {
 
 function updateLiveInfoList(live_info_list)
 {
+    debugLog('dom', 'updateLiveInfoList called with', live_info_list.length, 'items');
     let e = document.getElementById("live_info_list");
     if (!e) return;
     let text = "";
@@ -531,10 +554,20 @@ function updateLiveInfoList(live_info_list)
     text += "</td></tr></form></tfoot>";
 
     text += "<tbody>\n";
-    for (live of live_info_list) {
+    for (let live of live_info_list) {
+        console.log('[DEBUG:DOM] Rendering item:', live.config.channelUrl, 'status:', live.status, 'whitelistStatus:', live.whitelistStatus);
         const channelUrl = Encode(live.config.channelUrl);
         let channel_anchor = getChannelAnchor(live.config.channelUrl, live.inLive == 1);
         let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_new">' + CroppedText(live.title, 48) + '</a>' : '';
+        let whitelist_badge = '';
+        
+        // デバッグ用: 状態を確実に取得
+        const wlStatus = live.whitelistStatus || 'none';
+        if (wlStatus === 'linked') {
+            whitelist_badge = '<br><span class="badge-whitelist badge-linked" style="border: 2px solid white;">● ホワイトリスト連動中</span>';
+        } else if (wlStatus === 'linkable') {
+            whitelist_badge = '<br><span class="badge-whitelist badge-linkable" style="border: 1px solid black;">○ ホワイトリスト連動可</span>';
+        }
         let color = live.config.color ? makeColorBox(live.config.color) : '-';
         let controls = '';
 
@@ -559,7 +592,7 @@ function updateLiveInfoList(live_info_list)
         controls += '</div>';
         controls += '</div>';
 
-        text += '<tr><td align="center">' + controls + '</td><td align="center">' + live.status + '</td><td align="center" valign="middle">' + color + '</td><td>' + channel_anchor + '<br>' + live_anchor + "</td></tr>\n";
+        text += '<tr><td align="center">' + controls + '</td><td align="center">' + live.status + whitelist_badge + '</td><td align="center" valign="middle">' + color + '</td><td>' + channel_anchor + '<br>' + live_anchor + "</td></tr>\n";
     }
     text += "</tbody></table>\n";
     if (g_old_live_info_list_text !== text) {
@@ -810,13 +843,22 @@ function handleWebSocketUpdate(data)
 {
     debugLog('websocket', 'WebSocket update received:', {
         hasLiveInfoList: data.live_info_list !== undefined,
+        liveInfoListFirstStatus: data.live_info_list && data.live_info_list[0] ? data.live_info_list[0].whitelistStatus : 'N/A',
         hasAps: data.aps !== undefined,
         hasRcon: data.rcon !== undefined,
         rconValue: data.rcon,
-        currentRconActive: g_rcon_active
+        currentRconActive: g_rcon_active,
+        hasWhitelistControlEnabled: data.whitelistControlEnabled !== undefined
     });
+
+    if (data.whitelistControlEnabled !== undefined) {
+        g_whitelist_control_enabled = data.whitelistControlEnabled;
+        const toggle = document.getElementById('whitelist-control-toggle');
+        if (toggle) toggle.checked = g_whitelist_control_enabled;
+    }
     
     if (data.live_info_list !== undefined) {
+        console.log('[DEBUG:DATA] live_info_list:', data.live_info_list);
         g_live_info_list = data.live_info_list;
         updateLiveInfoList(data.live_info_list);
     }
@@ -1047,6 +1089,13 @@ function validateAddButton() {
 <div xstyle="margin:16pt; padding:8pt; border:2px dotted silver">
 <fieldset>
     <legend>配信転送サービス</legend>
+    <div class="whitelist-control-container">
+        <span class="whitelist-control-label">ホワイトリスト連動機能</span>
+        <label class="switch">
+            <input type="checkbox" id="whitelist-control-toggle" onchange="toggleWhitelistControl(this.checked)">
+            <span class="slider"></span>
+        </label>
+    </div>
     <p id="rcon">サーバー：</p>
     <p id="live">ライブ：</p>
     <div id="live_info_list" style="margin:0pt; padding:0pt; border:0px">

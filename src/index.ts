@@ -1,5 +1,6 @@
 // Youtube to Minecraft Chat
 import { LiveChat as YoutubeChat } from "youtube-chat"
+import { fetchLivePage } from "youtube-chat/dist/requests"
 import { TwitchChat, TwitchToken } from "twitch-chat"
 import { Rcon } from "rcon-client"
 import Axios from 'axios'
@@ -8,7 +9,7 @@ import express from "express"
 import basicAuth from "express-basic-auth"
 import * as http from "http"
 import WebSocket from "ws"
-import { Applicants, ApArray, LiveStreamConfig, LiveStreamConfigArray, LiveStreamInfo, LiveStreamInfoArray, MinecraftColor } from "./types/index.d"
+import { Applicants, ApArray, LiveStreamConfig, LiveStreamConfigArray, GlobalConfig, LiveStreamInfo, LiveStreamInfoArray, MinecraftColor } from "./types/index.d"
 
 // ====================================================================
 // 初期定数
@@ -242,7 +243,10 @@ function startPeriodicStatusCheck() {
   
   periodicStatusCheckInterval = setInterval(async () => {
     try {
-      // 参加者リストが空の場合はチェックをスキップ
+      // ホワイトリストの連動状態も定期的にチェック（猶予期間の監視のため）
+      await g_liveManager.updateWhitelistStatus()
+
+      // 参加者リストが空の場合はそれ以降のチェックをスキップ
       if (aps.length === 0) {
         return
       }
@@ -283,15 +287,6 @@ function stopPeriodicStatusCheck() {
   }
 }
 
-// 8080番ポートでサーバーを待ちの状態にする。
-// またサーバーが起動したことがわかるようにログを出力する
-server.listen(HTTP_PORT, () => {
-  console.log("Youtube to Minecraft Chat サービス起動中");
-  
-  // 定期的な参加者ステータスチェックを開始
-  startPeriodicStatusCheck();
-})
-
 // アプリケーション終了時のクリーンアップ
 process.on('SIGINT', () => {
   console.log('\n[INFO] Shutting down gracefully...');
@@ -313,40 +308,42 @@ process.on('SIGTERM', () => {
 const rcon = new Rcon({host: RCON_HOST, port: RCON_PORT, password: RCON_PASSWORD })
 let inRcon : 0 | 1 | 2 = 0 // 0=未接続,1=接続済み,2=認証済み
 let doEnd : boolean = false // true=Live接続解除要求
+let g_isWhitelistOff : boolean = false // 現在ホワイトリストがOFF（誰でも入れる）状態かどうか
 
 // ====================================================================
 // ライブの管理
 // ====================================================================
 
-function LiveStreamConfig_load(): Promise<LiveStreamConfigArray> {
+function LiveStreamConfig_load(): Promise<GlobalConfig> {
   return new Promise((resolve) => {
     fs.readFile('/config/config.json', 'utf8', (err, data) => {
       if (err) {
         console.log('設定ファイルが見つかりません。デフォルト設定を使用します:', err.message)
-        // デフォルトの空配列を返す
-        resolve([])
+        // デフォルト設定を返す
+        resolve({ whitelistControlEnabled: true, streams: [] })
         return
       }
 
       try {
-        console.log("---------------------------")
-        console.log(data)
-        console.log("---------------------------")
-        const config: LiveStreamConfigArray = JSON.parse(data)
-        resolve(config)
+        const json = JSON.parse(data)
+        // 配列形式（旧形式）の場合は変換する
+        if (Array.isArray(json)) {
+          resolve({ whitelistControlEnabled: true, streams: json })
+        } else {
+          resolve({
+            whitelistControlEnabled: json.whitelistControlEnabled ?? true,
+            streams: json.streams || []
+          })
+        }
       } catch (e) {
         console.error('設定ファイルの解析に失敗しました:', e)
-        // パース失敗時も空配列を返す
-        console.log("---------------------------")
-        console.log(data)
-        console.log("---------------------------")
-        resolve([])
+        resolve({ whitelistControlEnabled: true, streams: [] })
       }
     })
   })
 }
 
-function LiveStreamConfig_save(config: LiveStreamConfigArray) : Promise<void>
+function LiveStreamConfig_save(config: GlobalConfig) : Promise<void>
 {
   return new Promise((resolve, reject) => {
     fs.writeFile('/config/config.json', JSON.stringify(config, null, 2), (err) => {
@@ -370,7 +367,9 @@ abstract class LiveStream {
       liveUrl: '',
       title: '',
       status: '開始待機',
-      inLive: 0
+      inLive: 0,
+      whitelistStatus: 'none',
+      lastSeenAliveAt: 0
     }
   }
 
@@ -384,10 +383,21 @@ abstract class LiveStream {
     return "<a href='" + this.info.liveUrl + "' target=new>" + this.info.title +"</a>"
   }
 
+  // タイトルにマイクラと参加型が含まれているかチェック
+  hasWhitelistKeywords() : boolean
+  {
+    const title = this.info.title || ''
+    const hasMinecraft = !!title.match(/minecraft|マインクラフト|マイクラ/i)
+    const hasParticipation = !!title.match(/参加型|参加可/)
+    return hasMinecraft && hasParticipation
+  }
+
   // 監視スタート
   abstract start(): Promise<boolean>
   // 監視ストップ
   abstract stop(reson?: string): void
+  // 定期更新チェック
+  abstract checkUpdate(): Promise<void>
 
 }
 
@@ -516,6 +526,60 @@ class YoutubeLiveStream extends LiveStream {
     }
     onError()
   }
+
+  async checkUpdate(): Promise<void>
+  {
+    const url = new URL(this.info.config.channelUrl)
+    const videoId = url.searchParams.get('v')
+    
+    // チャンネルURL（handle or channelId）の場合のみ
+    if (!(url.pathname.startsWith('/watch') && videoId)) {
+      console.log(`[CHECK] YouTube channel check: ${this.info.config.channelUrl}`)
+      
+      let idYoutube: { channelId: string } | { handle: string } | null = null
+      if (url.pathname.startsWith('/@')) {
+        idYoutube = { handle: url.pathname.substring(1) }
+      } else if (url.pathname.startsWith('/channel/')) {
+        let result: RegExpMatchArray | null = url.pathname.match(/^\/channel\/([^\/]+)/)
+        if (result && result.length > 1) {
+          idYoutube = { channelId: result[1] }
+        }
+      }
+
+      if (idYoutube) {
+        try {
+          const livePage = await fetchLivePage(idYoutube)
+          const newLiveId = livePage.liveId
+          const currentLiveId = this.info.liveUrl.match(/[?&]v=([^&]+)/)?.[1]
+
+          if (newLiveId) {
+            // 配信中ならタイトルを最新のものに更新する
+            if (livePage.title) {
+              this.info.title = livePage.title
+            }
+            if (newLiveId !== currentLiveId) {
+              console.log(`[CHECK] New YouTube live detected via fetchLivePage: ${newLiveId} (current: ${currentLiveId})`)
+              this.start() // 切り替え
+            } else if (this.info.inLive !== 1) {
+              // 同じIDだが配信中でない場合（終了済みからの再開など）
+              console.log(`[CHECK] YouTube live is same but not in progress. Attempting to restart: ${newLiveId}`)
+              this.start()
+            }
+          }
+        } catch (error: any) {
+          if (error.message?.match(/Live Stream was not found/)) {
+            console.log(`[CHECK] No YouTube live found for ${this.info.config.channelUrl}`)
+            this.info.inLive = 0
+            this.info.status = "予定なし"
+            // WebSocketに通知
+            broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
+          } else {
+            console.error(`[CHECK] fetchLivePage error: ${error.message}`)
+          }
+        }
+      }
+    }
+  }
 }
 
 // このアプリ内で共通の TwitchToken を作成
@@ -602,6 +666,20 @@ class TwitchLiveStream extends LiveStream {
     }
     onError()
   }
+
+  async checkUpdate(): Promise<void>
+  {
+    const url = new URL(this.info.config.channelUrl)
+    const name = url.pathname.split('/')[1]
+    
+    // チャンネルを指定している場合に限り（Twitchは通常そうなる）
+    if (name && name.length > 0) {
+      if (this.info.inLive !== 1) {
+        console.log(`[CHECK] Twitch stream check for restart: ${this.info.config.channelUrl}`)
+        this.start()
+      }
+    }
+  }
   
 }
 
@@ -626,15 +704,67 @@ function LiveStreamFactory(config: LiveStreamConfig): LiveStream | null
 class LiveStreamManager
 {
   public lives: Array<LiveStream>
+  private checkInterval: NodeJS.Timeout | null = null
+  private config: GlobalConfig = { whitelistControlEnabled: true, streams: [] }
 
   constructor()
   {
     this.lives = []
+    this.startPeriodicCheck()
+  }
+
+  // 設定を取得
+  getConfig(): GlobalConfig {
+    return {
+      whitelistControlEnabled: this.config.whitelistControlEnabled,
+      streams: this.lives.map(live => live.info.config)
+    }
+  }
+
+  // ホワイトリスト連動の有効無効を設定
+  async setWhitelistControlEnabled(enabled: boolean) {
+    if (this.config.whitelistControlEnabled !== enabled) {
+      console.log(`[WHITELIST] Whitelist control enabled set to: ${enabled}`)
+      this.config.whitelistControlEnabled = enabled
+      await this.save()
+      await this.updateWhitelistStatus()
+    }
+  }
+
+  // 定期的なチェックを開始
+  startPeriodicCheck()
+  {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval)
+    }
+    this.checkInterval = setInterval(() => {
+      this.checkUpdateAll()
+    }, 30 * 60 * 1000) // 30分おき
+    console.log("[INFO] Periodic live stream update check started (every 30 minutes)")
+  }
+
+  // 全てのライブ配信の更新をチェック
+  async checkUpdateAll()
+  {
+    console.log("[INFO] Checking all live streams for updates...")
+    for (const live of this.lives) {
+      try {
+        await live.checkUpdate()
+      } catch (e) {
+        console.error(`[ERROR] Failed to check update for ${live.info.config.channelUrl}:`, e)
+      }
+    }
+    // 全てのチェックが終わったらホワイトリスト連動状態を更新
+    await this.updateWhitelistStatus()
   }
 
   // 破棄
   destory()
   {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval)
+      this.checkInterval = null
+    }
     for (let i = 0; i < this.lives.length; i++) {
       this.lives[i].stop()
     }
@@ -645,12 +775,13 @@ class LiveStreamManager
   async load() {
     // 一旦空にしてから、ロードする
     this.destory()
-    let configs = await LiveStreamConfig_load()
-    for (let i = 0; i < configs.length; i++) {
-      this.add(configs[i])
+    this.config = await LiveStreamConfig_load()
+    
+    for (let i = 0; i < this.config.streams.length; i++) {
+      this.add(this.config.streams[i])
     }
     // ロードするものが何もなければ、環境変数で規定されていたやつを設定して開始する
-    if (configs.length == 0) {
+    if (this.config.streams.length == 0) {
       let live = LiveStreamFactory({
         channelUrl: CHANNEL_URL,
         color: toMinecraftColor(MC_YOUTUBE_NAME_COLOR)
@@ -660,21 +791,25 @@ class LiveStreamManager
       }
       this.save() // 次回のために保存しておく
     }
+    this.startPeriodicCheck()
+    // 初期状態を判定
+    await this.updateWhitelistStatus()
   }
 
   // 保存
   async save() {
-    let configs: LiveStreamConfigArray = []
-    for (let i = 0; i < this.lives.length; i++) {
-      configs[i] = this.lives[i].info.config
-    }
-    return LiveStreamConfig_save(configs)
+    this.config.streams = this.lives.map(live => live.info.config)
+    return LiveStreamConfig_save(this.config)
   }
 
   // ライブの情報リストを得る
   getLiveInfoList() {
     let live_info_list: LiveStreamInfoArray = []
     for (let i = 0; i < this.lives.length; i++) {
+      // 念のため、whitelistStatusが未設定の場合は初期値を設定
+      if (this.lives[i].info.whitelistStatus === undefined) {
+          this.lives[i].info.whitelistStatus = 'none'
+      }
       live_info_list.push(this.lives[i].info)
     }
     return live_info_list
@@ -689,6 +824,96 @@ class LiveStreamManager
       }
     }
     return -1
+  }
+
+  // ホワイトリスト連動状態を更新し、必要に応じてRCONコマンドを送信する
+  async updateWhitelistStatus()
+  {
+    const now = Date.now()
+    let linkedFound = false
+    let anyShouldBeOff = false
+    let isModified = false
+    const gracePeriod = 3 * 60 * 1000
+
+    // 機能自体がOFFの場合は、全てnoneにして終了
+    if (!this.config.whitelistControlEnabled) {
+      for (const live of this.lives) {
+        if (live.info.whitelistStatus !== "none") {
+          live.info.whitelistStatus = "none"
+          isModified = true
+        }
+      }
+      
+      // ホワイトリストがOFFのままなら戻す
+      if (g_isWhitelistOff) {
+        console.log("[WHITELIST] Sending 'whitelist on' because whitelist control is disabled globally.")
+        if (rcon && inRcon > 1) {
+          await KnockServer()
+          rcon.send("whitelist on")
+          g_isWhitelistOff = false
+          isModified = true
+        }
+      }
+
+      if (isModified) {
+        broadcastUpdate({ rcon: inRcon, live_info_list: this.getLiveInfoList(), aps: aps, whitelistControlEnabled: false })
+      }
+      return
+    }
+
+    // どの配信が「連動中」か「連動可」かを判定
+    for (const live of this.lives) {
+      if (live.info.inLive === 1) {
+        live.info.lastSeenAliveAt = now // 配信中なら生存確認時刻を更新
+      }
+
+      let newStatus: "none" | "linked" | "linkable" = "none"
+
+      if (live.hasWhitelistKeywords()) {
+        const isCurrentlyActive = (live.info.inLive === 1) || (live.info.lastSeenAliveAt > 0 && (now - live.info.lastSeenAliveAt) < gracePeriod)
+        
+        if (isCurrentlyActive && !linkedFound) {
+          newStatus = "linked"
+          linkedFound = true
+          anyShouldBeOff = true
+        } else {
+          newStatus = "linkable"
+        }
+      }
+
+      if (live.info.whitelistStatus !== newStatus) {
+        console.log(`[WHITELIST] Status change for ${live.info.config.channelUrl}: ${live.info.whitelistStatus} -> ${newStatus}`)
+        live.info.whitelistStatus = newStatus
+        isModified = true
+      }
+    }
+
+    // ホワイトリストのON/OFF制御
+    if (anyShouldBeOff) {
+      if (!g_isWhitelistOff) {
+        console.log("[WHITELIST] Sending 'whitelist off' because a linked stream is active.")
+        if (rcon && inRcon > 1) {
+          await KnockServer()
+          rcon.send("whitelist off")
+          g_isWhitelistOff = true
+          isModified = true
+        }
+      }
+    } else {
+      if (g_isWhitelistOff) {
+        console.log("[WHITELIST] Sending 'whitelist on' because no linked streams are active (grace period expired).")
+        if (rcon && inRcon > 1) {
+          await KnockServer()
+          rcon.send("whitelist on")
+          g_isWhitelistOff = false
+          isModified = true
+        }
+      }
+    }
+
+    if (isModified) {
+       broadcastUpdate({ rcon: inRcon, live_info_list: this.getLiveInfoList(), aps: aps, whitelistControlEnabled: this.config.whitelistControlEnabled })
+    }
   }
 
   // 未使用のカラーを得る
@@ -1077,14 +1302,18 @@ function onStart(cmd: string)
     rcon.send('title @a subtitle "開始"')
     rcon.send('title @a title "配信コメント転送"')
     rcon.send('tellraw @a {"text":"<配信コメント転送開始>","color":"red"}')
-    if (cmd !== "") {
-      rcon.send(cmd)
-      console.log("RCON_SEND_ON_LIVE_START: " + cmd)
-    }
+    // 環境変数を直接参照する事は廃止し、タイトルに応じた動的制御に移行するため、
+    // ここでの cmd (RCON_SEND_ON_LIVE_START相当) の実行は行わないか、
+    // あるいはホワイトリストコマンド以外に限定する。
+    // 今回はユーザーの「環境変数参照は廃止」との意向を汲み、ホワイトリスト制御は 
+    // updateWhitelistStatus で一括管理するため、ここでは何もしない。
   }
   
   // WebSocketクライアントに状態更新を通知
   broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
+  
+  // ホワイトリストの状態を即座に判定
+  g_liveManager.updateWhitelistStatus()
 }
 
 // 転送終了時
@@ -1096,14 +1325,14 @@ function onEnd(cmd: string)
     rcon.send('title @a subtitle "終了"')
     rcon.send('title @a title "配信コメント転送"')
     rcon.send('tellraw @a {"text":"<配信コメント転送終了>","color":"red"}')
-    if (cmd !== undefined) {
-      rcon.send(cmd)
-      console.log("RCON_SEND_ON_LIVE_END: " + cmd)
-    }
+    // 同様に、ここでの cmd (RCON_SEND_ON_LIVE_END相当) の実行も廃止。
   }
   
   // WebSocketクライアントに状態更新を通知
   broadcastUpdate({ rcon: inRcon, live_info_list: g_liveManager.getLiveInfoList(), aps: aps })
+
+  // ホワイトリスト状態を更新（猶予期間のカウントダウン開始の契機となる）
+  g_liveManager.updateWhitelistStatus()
 }
 
 // 転送開始後にエラーが発生した時
@@ -1281,6 +1510,17 @@ app.get('/remove', (req : express.Request, res : express.Response) => {
   
   // WebSocket経由で更新を送信
   broadcastUpdate(responseData)
+})
+
+app.get('/whitelist-control', (req : express.Request, res : express.Response) => {
+  if (req.query.enabled !== undefined) {
+    const enabled = req.query.enabled === 'true'
+    g_liveManager.setWhitelistControlEnabled(enabled)
+    res.json({ status: 'ok', enabled: enabled })
+  } else {
+    res.json({ enabled: g_liveManager.getConfig().whitelistControlEnabled })
+  }
+  res.end()
 })
 
 app.get('/status', (req : express.Request, res : express.Response) => {
@@ -1588,3 +1828,12 @@ async function main()
 
 //DetectLogin(MC_CONTAINER)
 main().catch(console.error)
+
+// 8080番ポートでサーバーを待ちの状態にする。
+// またサーバーが起動したことがわかるようにログを出力する
+server.listen(HTTP_PORT, () => {
+  console.log("Youtube to Minecraft Chat サービス起動中");
+  
+  // 定期的な参加者ステータスチェックを開始
+  startPeriodicStatusCheck();
+})
