@@ -204,7 +204,8 @@ wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
   const currentStatus = {
     rcon: inRcon,
     live_info_list: g_liveManager.getLiveInfoList(),
-    aps: aps
+    aps: aps,
+    whitelistControlEnabled: g_liveManager.getConfig().whitelistControlEnabled
   }
   ws.send(JSON.stringify(currentStatus))
 })
@@ -1474,7 +1475,12 @@ app.get('/start', (req : express.Request, res : express.Response) => {
     g_liveManager.start(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  const responseData = { "request": "start", "rcon": inRcon, "live_info_list": live_info_list}
+  const responseData = { 
+    "request": "start", 
+    "rcon": inRcon, 
+    "live_info_list": live_info_list,
+    "whitelistControlEnabled": g_liveManager.getConfig().whitelistControlEnabled
+  }
   res.json(responseData)
   res.end()
   
@@ -1489,7 +1495,12 @@ app.get('/stop', (req : express.Request, res : express.Response) => {
     g_liveManager.stop(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  const responseData = { "request": "stop", "rcon": inRcon, "live_info_list": live_info_list}
+  const responseData = { 
+    "request": "stop", 
+    "rcon": inRcon, 
+    "live_info_list": live_info_list,
+    "whitelistControlEnabled": g_liveManager.getConfig().whitelistControlEnabled
+  }
   res.json(responseData)
   res.end()
   
@@ -1504,7 +1515,12 @@ app.get('/remove', (req : express.Request, res : express.Response) => {
     g_liveManager.remove(url)
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  const responseData = { "request": "remove", "rcon": inRcon, "live_info_list": live_info_list}
+  const responseData = { 
+    "request": "remove", 
+    "rcon": inRcon, 
+    "live_info_list": live_info_list,
+    "whitelistControlEnabled": g_liveManager.getConfig().whitelistControlEnabled
+  }
   res.json(responseData)
   res.end()
   
@@ -1527,7 +1543,13 @@ app.get('/status', (req : express.Request, res : express.Response) => {
   ApArray_updateAll(true) // 参加希望者リストを更新
 
   let live_info_list = g_liveManager.getLiveInfoList()
-  const statusData = { "request": "status", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  const statusData = { 
+    "request": "status", 
+    "rcon": inRcon, 
+    "live_info_list": live_info_list, 
+    "aps": aps,
+    "whitelistControlEnabled": g_liveManager.getConfig().whitelistControlEnabled
+  }
   res.json(statusData)
   //console.log('statusのGETリクエストを受け取りました')
   res.end()
@@ -1541,7 +1563,13 @@ app.get('/clear', (req : express.Request, res : express.Response) => {
   console.log('clearのGETリクエストを受け取りました')
   ApArray_clear() // 参加希望者リストを空にする
   let live_info_list = g_liveManager.getLiveInfoList()
-  const responseData = { "request": "clear", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  const responseData = { 
+    "request": "clear", 
+    "rcon": inRcon, 
+    "live_info_list": live_info_list, 
+    "aps": aps,
+    "whitelistControlEnabled": g_liveManager.getConfig().whitelistControlEnabled
+  }
   res.json(responseData)
   res.end()
   
@@ -1564,7 +1592,13 @@ app.get('/reset', (req : express.Request, res : express.Response) => {
     }
   }
   let live_info_list = g_liveManager.getLiveInfoList()
-  const responseData = { "request": "reset", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  const responseData = { 
+    "request": "reset", 
+    "rcon": inRcon, 
+    "live_info_list": live_info_list, 
+    "aps": aps,
+    "whitelistControlEnabled": g_liveManager.getConfig().whitelistControlEnabled
+  }
   res.json(responseData)
   res.end()
   
@@ -1585,7 +1619,13 @@ app.get('/add', (req : express.Request, res : express.Response) => {
   let a : Applicants = {id: filterPlayerID(id), name: name, memo: memo, accept: 0, nicked: false}
   ApArray_add(a)
   let live_info_list = g_liveManager.getLiveInfoList()
-  const responseData = { "request": "add", "rcon": inRcon, "live_info_list": live_info_list, "aps": aps }
+  const responseData = { 
+    "request": "add", 
+    "rcon": inRcon, 
+    "live_info_list": live_info_list, 
+    "aps": aps,
+    "whitelistControlEnabled": g_liveManager.getConfig().whitelistControlEnabled
+  }
   res.json(responseData)
   res.end()
   
