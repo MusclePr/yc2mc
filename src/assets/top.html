@@ -639,6 +639,10 @@ function onBodyLoaded()
 {
     debugLog('general', 'onBodyLoaded called');
     stop_update();  // 保険
+    
+    // タブのアクティブ状態を監視
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     // WebSocketを使用してリアルタイム更新を行う
     connectWebSocket();
     // 初期状態でボタンの有効/無効を評価（DOM要素が確実に存在するまで待つ）
@@ -670,17 +674,38 @@ function onBodyLoaded()
     retryValidation();
 }
 
+// タブの表示状態が変化した時の処理
+function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+        debugLog('general', 'Tab became visible - checking WebSocket connection');
+        if (!g_websocket || (g_websocket.readyState !== WebSocket.OPEN && g_websocket.readyState !== WebSocket.CONNECTING)) {
+            warnLog('websocket', 'WebSocket is not active upon becoming visible, reconnecting...');
+            connectWebSocket();
+        }
+    }
+}
+
 function connectWebSocket()
 {
     if (g_server_down) {
         debugLog('websocket', 'Skipping WebSocket connection - server is down');
         return;
     }
-    
-    if (g_websocket && g_websocket.readyState === WebSocket.OPEN) {
-        debugLog('websocket', 'WebSocket already connected, skipping connection attempt');
-        return; // 既に接続済み
+
+    if (g_websocket) {
+        if (g_websocket.readyState === WebSocket.OPEN || g_websocket.readyState === WebSocket.CONNECTING) {
+            debugLog('websocket', 'WebSocket already connected or connecting, skipping connection attempt');
+            return;
+        }
+        // 既存の接続（CLOSEDやCLOSING）がある場合は掃除
+        g_websocket.onopen = null;
+        g_websocket.onmessage = null;
+        g_websocket.onclose = null;
+        g_websocket.onerror = null;
     }
+
+    // WebSocket接続試行時はポーリングを確実に停止
+    stop_update();
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = protocol + '//' + window.location.host + '/mcui/live/api/'; 
@@ -744,7 +769,9 @@ function connectWebSocket()
                 debugLog('websocket', 'Attempting WebSocket reconnection in 3 seconds');
                 connectWebSocket(); // 再接続を試行
             }, 3000);
+            
             // フォールバック用のポーリングを開始
+            stop_update(); // 二重起動防止
             debugLog('websocket', 'Starting fallback polling');
             g_interval = setInterval(update, 3000);
         }
@@ -772,6 +799,7 @@ function connectWebSocket()
         // サーバーダウン状態でなければポーリングにフォールバック
         if (!g_server_down) {
             // エラー時もポーリングにフォールバック
+            stop_update(); // 二重起動防止
             debugLog('websocket', 'Starting fallback polling due to WebSocket error');
             g_interval = setInterval(update, 3000);
         }

@@ -178,12 +178,17 @@ const server = http.createServer(app)
 const wss = new WebSocket.Server({ server })
 
 // WebSocketクライアント管理
-const clients = new Set<WebSocket>()
+const clients = new Set<WebSocket & { isAlive?: boolean }>()
 
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (ws: WebSocket & { isAlive?: boolean }) => {
   console.log('WebSocket client connected')
+  ws.isAlive = true
   clients.add(ws)
   
+  ws.on('pong', () => {
+    ws.isAlive = true
+  })
+
   ws.on('close', () => {
     console.log('WebSocket client disconnected')
     clients.delete(ws)
@@ -202,6 +207,19 @@ wss.on('connection', (ws: WebSocket) => {
   }
   ws.send(JSON.stringify(currentStatus))
 })
+
+// WebSocket生存確認（ハートビート）
+const heartbeatInterval = setInterval(() => {
+  clients.forEach(ws => {
+    if (ws.isAlive === false) {
+      console.log('Terminating inactive WebSocket client')
+      return ws.terminate()
+    }
+    
+    ws.isAlive = false
+    ws.ping()
+  })
+}, 30000) // 30秒間隔
 
 // 全クライアントに更新を送信
 function broadcastUpdate(data: any) {
@@ -451,8 +469,13 @@ class YoutubeLiveStream extends LiveStream {
         text += e.text
       }
     })
-    onChat(c.author.name, text, this.info.config.color)
-    onChatCheck(c.author.name, text)
+    let name = c.author.name
+    // c.author.name は、先頭にハンドルを示す「@」が付いている場合があるので除去
+    if (name.startsWith("@")) {
+      name = name.substring(1)
+    }
+    onChat(name, text, this.info.config.color)
+    onChatCheck(name, text)
   }
 
   onYoutubeLiveError(err : unknown) : void
@@ -1530,6 +1553,7 @@ async function closeGracefully(signal : string)
   try {
     bMainLoop = false
     g_liveManager.destory()
+    clearInterval(heartbeatInterval)
 
     if (rcon.socket && !rcon.socket.connecting && rcon.socket.writable) {
       await KnockServer()
