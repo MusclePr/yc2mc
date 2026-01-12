@@ -362,7 +362,7 @@ function updateList(aps)
     for (a of aps) {
         const unknown = (a.id === "不明なユーザー")
         const bedrock = (a.id.charAt(0) == '.')
-        let id_label = unknown ? '<font color=red>不明なユーザー</font>' : (bedrock ? a.id : '<a href="https://ja.namemc.com/search?q=' + a.id + '" target="_new">' + a.id + '</a>');
+        let id_label = unknown ? '<font color=red>不明なユーザー</font>' : (bedrock ? a.id : '<a href="https://ja.namemc.com/search?q=' + a.id + '" target="_blank">' + a.id + '</a>');
         const DONE = "<font color=green>済</font>";
         const YET = "<font color=red>未</font>";
         
@@ -468,7 +468,7 @@ function getChannelAnchor(channelUrl, active)
     }
     // タイトルが長すぎる場合、省略する
     title = CroppedText(title, 48);
-    return '<a href="' + channelUrl + '" target="_new" class="platform-link">' + platform + '</a><span onClick="setURL(\'' + channelUrl + '\')" class="platform-title">' + title + '</span>';
+    return '<a href="' + channelUrl + '" target="_blank" class="platform-link">' + platform + '</a><span onClick="setURL(\'' + channelUrl + '\')" class="platform-title">' + title + '</span>';
 }
 
 g_old_live_info_list_text = ""
@@ -536,8 +536,8 @@ function updateLiveInfoList(live_info_list)
     let text = "";
     text += "<table>\n";
     text += '<thead><tr><th>操作</th><th>状態</th><th><span class="icon">🎨</span>色</th><th>';
-    text += '<a href="https://youtube.com/" target="_new"><img src="images/youtube_social_icon_red.png" alt="Youtube" class="platform-icon"></a>';
-    text += '<a href="https://twitch.tv/" target="_new"><img src="images/glitch_flat_purple.png" alt="Twitch" class="platform-icon"></a>';
+    text += '<a href="https://youtube.com/" target="_blank"><img src="images/youtube_social_icon_red.png" alt="Youtube" class="platform-icon"></a>';
+    text += '<a href="https://twitch.tv/" target="_blank"><img src="images/glitch_flat_purple.png" alt="Twitch" class="platform-icon"></a>';
     text += "チャンネル</th></tr></thead>\n";
     text += '<tfoot><form><tr><td>';
     text += '<button id="start" disabled onclick="';
@@ -558,7 +558,7 @@ function updateLiveInfoList(live_info_list)
         console.log('[DEBUG:DOM] Rendering item:', live.config.channelUrl, 'status:', live.status, 'whitelistStatus:', live.whitelistStatus);
         const channelUrl = Encode(live.config.channelUrl);
         let channel_anchor = getChannelAnchor(live.config.channelUrl, live.inLive == 1);
-        let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_new">' + CroppedText(live.title, 48) + '</a>' : '';
+        let live_anchor = live.liveUrl ? '<a href="' + live.liveUrl + '" target="_blank">' + CroppedText(live.title, 48) + '</a>' : '';
         let whitelist_badge = '';
         
         // デバッグ用: 状態を確実に取得
@@ -1090,7 +1090,7 @@ function validateAddButton() {
 <fieldset>
     <legend>配信転送サービス</legend>
     <div class="whitelist-control-container">
-        <span class="whitelist-control-label">ホワイトリスト連動機能</span>
+        <span class="whitelist-control-label" title="連動させるには、配信のタイトルに以下の文字列を含めてください。&#10;1. Minecraft または、マインクラフト または、マイクラ&#10;2. 参加型 または 参加可">ホワイトリスト連動機能</span>
         <label class="switch">
             <input type="checkbox" id="whitelist-control-toggle" onchange="toggleWhitelistControl(this.checked)">
             <span class="slider"></span>

@@ -19,12 +19,17 @@ Youtube のライブ配信チャットを Minecraft サーバーのゲーム内�
     - 配信チャンネルからライブ配信の監視開始/停止
   - 参加希望者リストの管理
     - 参加希望者の追加・削除・承認/拒否
+  - ホワイトリスト連動機能
+    - Youtube の配信のタイトルに以下が含まれているとホワイトリスト機能を配信と連動してOFF/ONします。
+      1. `Minecraft` または `マインクラフト` または `マイクラ`
+      2. `参加型` または `参加可`
 
 ## 必要要件
 
 - Docker … コンテナ制御
 - Docker Compose … コンテナ連携制御
-- Node.js v16以上 … JavaScript 実行環境
+- Node.js v24以上 … JavaScript 実行環境
+  - `nvm install --lts`
 - Minecraft サーバー (Paper)
   - 必須プラグイン
     - NicknameRequired … サーバーへの接続時に、ニックネームの登録が無ければ、KICKするプラグイン
