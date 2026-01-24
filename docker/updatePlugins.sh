@@ -193,7 +193,7 @@ mkdir -p "${DEST_DIR}"
 cp -auv "assets/lobby/plugins/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
 
 # ニックネームプラグイン
-SRC_FILE=~/dev/NicknameRequired/build/libs/NicknameRequired-1.0-SNAPSHOT.jar
+SRC_FILE=~/dev/NicknameRequired/server/build/libs/NicknameRequired-1.0-SNAPSHOT.jar
 if [ -f "${SRC_FILE}" ]; then
     echo "NicknameRequired.jar found in local, copying to ${DEST_DIR}"
     cp -v "${SRC_FILE}" "${DEST_DIR}/NicknameRequired.jar"

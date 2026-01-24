@@ -25,6 +25,7 @@ export interface LiveStreamConfigArray extends Array<LiveStreamConfig> {
 
 // 全体設定
 export type GlobalConfig = {
+  formatVersion: number
   whitelistControlEnabled: boolean
   streams: LiveStreamConfig[]
 }

@@ -34,6 +34,7 @@ const LIVE_END_TO_CLEAR_ACCEPT : string = process.env.LIVE_END_TO_CLEAR_ACCEPT |
 const TICKET_SERVER : string = process.env.TICKET_SERVER || "ticket:8000"
 const DEFAULT_MC_COLOR: MinecraftColor = "gold"
 const MC_YOUTUBE_NAME_COLOR : string = process.env.MC_YOUTUBE_NAME_COLOR || DEFAULT_MC_COLOR
+const CONFIG_FORMAT_VERSION : number = 1
 // twitch-chat のクライアントIDとシークレット
 const TWITCH_CLIENT_ID = process.env.TWITCH_CLIENT_ID || 'ids1p64r28f77znlfway7vz7j6xfev';
 const TWITCH_CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET || 'qzw78q5id4u1rmkqb81w7xjgjenn93';
@@ -316,29 +317,42 @@ let g_isWhitelistOff : boolean = false // 現在ホワイトリストがOFF（�
 // ====================================================================
 
 function LiveStreamConfig_load(): Promise<GlobalConfig> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     fs.readFile('/config/config.json', 'utf8', (err, data) => {
       if (err) {
-        console.log('設定ファイルが見つかりません。デフォルト設定を使用します:', err.message)
-        // デフォルト設定を返す
-        resolve({ whitelistControlEnabled: true, streams: [] })
+        // ファイルが存在しない場合のみ、新規作成としてデフォルト設定を返す
+        if (err.code === 'ENOENT') {
+          console.log('設定ファイルが見つかりません。新規作成として扱います。')
+          resolve({ formatVersion: 0, whitelistControlEnabled: true, streams: [] })
+        } else {
+          // その他のエラー（権限エラーなど）は例外として処理し、上書きを防ぐ
+          console.error('設定ファイルの読み込み時にエラーが発生しました:', err.message)
+          reject(err)
+        }
         return
       }
 
       try {
+        if (!data || data.trim() === '') {
+           console.log('設定ファイルが空です')
+        }
         const json = JSON.parse(data)
         // 配列形式（旧形式）の場合は変換する
         if (Array.isArray(json)) {
-          resolve({ whitelistControlEnabled: true, streams: json })
+          console.log('旧形式の設定ファイルを検出しました。新形式に変換します。')
+          resolve({ formatVersion: CONFIG_FORMAT_VERSION, whitelistControlEnabled: true, streams: json })
         } else {
+          const formatVersion = typeof json.formatVersion === 'number' ? json.formatVersion : CONFIG_FORMAT_VERSION
           resolve({
+            formatVersion: formatVersion,
             whitelistControlEnabled: json.whitelistControlEnabled ?? true,
             streams: json.streams || []
           })
         }
       } catch (e) {
-        console.error('設定ファイルの解析に失敗しました:', e)
-        resolve({ whitelistControlEnabled: true, streams: [] })
+        console.error('設定ファイルの解析に失敗しました。ファイルが破損している可能性があります:', e)
+        // パースエラー時は、デフォルト設定で上書きしてしまうのを防ぐため、例外を返す
+        reject(e)
       }
     })
   })
@@ -706,7 +720,7 @@ class LiveStreamManager
 {
   public lives: Array<LiveStream>
   private checkInterval: NodeJS.Timeout | null = null
-  private config: GlobalConfig = { whitelistControlEnabled: true, streams: [] }
+  private config: GlobalConfig = { formatVersion: 0, whitelistControlEnabled: true, streams: [] }
 
   constructor()
   {
@@ -717,6 +731,7 @@ class LiveStreamManager
   // 設定を取得
   getConfig(): GlobalConfig {
     return {
+      formatVersion: this.config.formatVersion,
       whitelistControlEnabled: this.config.whitelistControlEnabled,
       streams: this.lives.map(live => live.info.config)
     }
@@ -776,21 +791,35 @@ class LiveStreamManager
   async load() {
     // 一旦空にしてから、ロードする
     this.destory()
-    this.config = await LiveStreamConfig_load()
     
-    for (let i = 0; i < this.config.streams.length; i++) {
-      this.add(this.config.streams[i])
+    try {
+      console.log("[INFO] 設定の読み込み中...")
+      this.config = await LiveStreamConfig_load()
+    } catch (e) {
+      console.error('[FATAL] 設定の読み込みに失敗したため、データの安全のためロード処理を中断します。', e)
+      // ここで処理を中断し、呼び出し元に例外を伝播させることで、
+      // 後の処理でのデフォルト値による上書き（初期化）を防ぐ。
+      throw e
     }
-    // ロードするものが何もなければ、環境変数で規定されていたやつを設定して開始する
-    if (this.config.streams.length == 0) {
-      let live = LiveStreamFactory({
-        channelUrl: CHANNEL_URL,
-        color: toMinecraftColor(MC_YOUTUBE_NAME_COLOR)
-      })
-      if (live) {
-        this.lives.push(live)
+    
+    if (this.config.formatVersion === 0) {
+      // 設定ファイルが存在しなかった（新規）場合のみフォールバックする
+      this.config.formatVersion = CONFIG_FORMAT_VERSION
+      const defaultUrl = CHANNEL_URL
+      if (defaultUrl) {
+        let live = LiveStreamFactory({
+          channelUrl: defaultUrl,
+          color: toMinecraftColor(MC_YOUTUBE_NAME_COLOR)
+        })
+        if (live) {
+          this.lives.push(live)
+          this.save() // 初回のみ保存
+        }
       }
-      this.save() // 次回のために保存しておく
+    } else {
+      for (let i = 0; i < this.config.streams.length; i++) {
+        this.add(this.config.streams[i])
+      }
     }
     this.startPeriodicCheck()
     // 初期状態を判定
@@ -799,6 +828,9 @@ class LiveStreamManager
 
   // 保存
   async save() {
+    if (this.config.formatVersion === 0) {
+      this.config.formatVersion = CONFIG_FORMAT_VERSION
+    }
     this.config.streams = this.lives.map(live => live.info.config)
     return LiveStreamConfig_save(this.config)
   }
