@@ -1,6 +1,7 @@
 // Youtube to Minecraft Chat
 import { LiveChat as YoutubeChat } from "youtube-chat"
 import { fetchLivePage } from "youtube-chat/dist/requests"
+// @ts-ignore
 import { TwitchChat, TwitchToken } from "twitch-chat"
 import { Rcon } from "rcon-client"
 import Axios from 'axios'
@@ -569,8 +570,8 @@ class YoutubeLiveStream extends LiveStream {
 
           if (newLiveId) {
             // 配信中ならタイトルを最新のものに更新する
-            if (livePage.title) {
-              this.info.title = livePage.title
+            if (livePage && 'title' in livePage) {
+              this.info.title = (livePage as any).title
             }
             if (newLiveId !== currentLiveId) {
               console.log(`[CHECK] New YouTube live detected via fetchLivePage: ${newLiveId} (current: ${currentLiveId})`)

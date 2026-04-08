@@ -1,4 +1,4 @@
-FROM node:25-alpine
+FROM node:lts-alpine
 # パッケージインストール
 RUN apk -U --no-cache add tzdata musl-locales bash su-exec
 RUN apk -U --no-cache add docker-cli knock curl jq yq

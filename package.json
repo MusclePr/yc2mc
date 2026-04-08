@@ -1,23 +1,22 @@
 {
   "dependencies": {
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
+    "dotenv": "^17.4.1",
+    "express": "^5.2.1",
     "express-basic-auth": "^1.2.1",
     "node-fetch": "^3.3.2",
     "rcon-client": "^4.2.5",
     "twitch-chat": "file:./twitch-chat-v1.0.0.tgz",
-    "ws": "^8.18.2",
-    "yc2mc": "file:.",
+    "ws": "^8.20.0",
     "youtube-chat": "file:./youtube-chat-2.2.0.tgz"
   },
   "devDependencies": {
-    "@types/express": "^5.0.2",
+    "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.0.2",
-    "@types/node-fetch": "^2.6.11",
+    "@types/node": "^25.5.2",
+    "@types/node-fetch": "^2.6.13",
     "@types/tmi.js": "^1.8.6",
     "@types/ws": "^8.18.1",
-    "typescript": "^5.8.3"
+    "typescript": "^6.0.2"
   },
   "name": "yc2mc",
   "version": "1.0.0",
@@ -31,15 +30,14 @@
   },
   "author": "MusclePr",
   "license": "MIT",
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
+  "packageManager": "yarn@1.22.22",
   "engines": {
-    "node": ">=24.0.0",
+    "node": ">=24.14.1",
     "yarn": ">=1.22.0",
     "npm": "please-use-yarn"
   },
   "engineStrict": true,
   "preferGlobal": false,
-  "resolutions": {},
   "workspaces": {
     "nohoist": []
   }
