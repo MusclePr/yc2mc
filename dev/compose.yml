@@ -1,0 +1,26 @@
+# 
+# これはnodeアプリケーションを開発するための仮想開発環境です。
+# 常に最新環境にするため、イメージを再ビルドしてから起動することを推奨。
+# 
+
+services:
+  node:
+    container_name: node
+    image: ghcr.io/musclepr/node
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 9229:9229
+    environment:
+      # OS
+      TZ: "Asia/Tokyo"
+    volumes:
+      - "../:/build"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    #group_add:
+    #  - 999
+    user: "1000:1000"
+    tty: true
+    stdin_open: true
+    restart: on-failure:1

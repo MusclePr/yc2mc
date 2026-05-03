@@ -2,8 +2,6 @@ FROM node:lts-alpine
 # パッケージインストール
 RUN apk -U --no-cache add tzdata musl-locales bash su-exec
 RUN apk -U --no-cache add docker-cli knock curl jq yq
-# dockerグループ(GID:999)として、nodeユーザーを追加 (alpineのGID:999は、pingグループ)
-RUN adduser node ping
 ARG DEBUG
 ENV DEBUG=${DEBUG:-""}
 ENV TZ=Asia/Tokyo

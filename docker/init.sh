@@ -40,6 +40,15 @@ function checkTools()
     if [ $? -ne 0 ]; then
         echo "yq is not installed. Please install yq."
         echo "https://github.com/mikefarah/yq/"
+        echo "sudo snap install yq"
+        exit 1
+    fi
+
+    # unzip のインストール確認
+    unzip -v > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "unzip is not installed. Please install unzip."
+        echo "sudo apt install unzip"
         exit 1
     fi
 }
@@ -262,13 +271,6 @@ if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d ${SERVER1}/data ]; then
     clean # 中途半端な状態を消す
 
     echo "Setting up ..."
-
-    # Docker イメージの更新
-    echo "Pulling docker images ..."
-    docker pull ghcr.io/musclepr/mc-proxy
-    docker pull MusclePr/ticket:latest
-    docker pull MusclePr/mcui
-    docker pull ghcr.io/musclepr/minecraft-server:latest
 
     mkdir -p proxy/data lobby/data ${SERVER1}/data ${SERVER1}/live ${SERVER1}/plugins
 

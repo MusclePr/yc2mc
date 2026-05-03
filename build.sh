@@ -1,2 +1,3 @@
 #!/bin/sh
-yarn run build
+cd "$(dirname "$0")"
+./dev/build.sh
