@@ -36,7 +36,7 @@ function Download()
         echo -n "Check & "
     fi
     echo "Download: ${SRC}"
-    curl -sRL "${SRC}" -o "${DST}" ${OPTS[*]}
+    curl -sSRL "${SRC}" -o "${DST}" ${OPTS[*]}
     local -i -r fsize="$(stat -c %s ${DST})"
     if [ ${fsize} -lt 64 ]; then
         cat "${DST}"
@@ -58,14 +58,20 @@ function DownloadFromModrinth()
     local -r MODRINTH_API="https://api.modrinth.com/v2/project"
     # ダウンロードするプラグインの ID（Modrinth の URL から取得可能）
     local -a PLUGINS=($@) OPTS
-    local PLUGIN VERSION_ID DOWNLOAD_URL DST
+    local PLUGIN VERSION_ID DOWNLOAD_URL DST PLATFORM_PAPER CHANNEL_RELEASE_OR_BETA LATEST_VERSION
     for PLUGIN in "${PLUGINS[@]}"; do
         echo "Modrinth から $PLUGIN の最新バージョンを取得しています..." >&2
-        # 最新のバージョン情報を取得
-        VERSION_ID=$(curl -s "${MODRINTH_API}/${PLUGIN}/version" | jq -r '.[0].id')
+        # プラットフォームが paper のバージョン情報を取得
+        PLATFORM_PAPER="$(curl -sSRL "${MODRINTH_API}/${PLUGIN}/version" | jq -r '[ .[] | select(.loaders[] | contains("paper")) ]')"
+        # 最新のバージョン情報のうち、release または beta のものだけを抽出
+        CHANNEL_RELEASE_OR_BETA="$(echo "${PLATFORM_PAPER}" | jq -r '[ .[] | select(.version_type == "release" or .version_type == "beta") ]')"
+        # game_versions 配列に含まれる要素のうち、最新のバージョン文字列を得る
+        LATEST_VERSION="$(echo "${CHANNEL_RELEASE_OR_BETA}" | jq -r '[ .[] | .game_versions[] ] | sort_by(split(".") | map(tonumber))[-1]')"
+        echo "Latest version: ${LATEST_VERSION}" >&2
+        VERSION_ID="$(echo "${CHANNEL_RELEASE_OR_BETA}" | jq -r "[ .[] | select(.game_versions | any(startswith(\"${LATEST_VERSION}\"))) ] | .[0].id")"
         if [ -n "${VERSION_ID}" ]; then
             # ダウンロード URL を取得
-            DOWNLOAD_URL=$(curl -s "${MODRINTH_API}/${PLUGIN}/version/${VERSION_ID}" | jq -r '.files[0].url')
+            DOWNLOAD_URL="$(curl -sSRL "${MODRINTH_API}/${PLUGIN}/version/${VERSION_ID}" | jq -r '.files[0].url')"
             if [ -n "${DOWNLOAD_URL}" ]; then
                 DST="${DEST_DIR}/$(basename ${DOWNLOAD_URL})"
                 # 出力ファイルが存在していたら、タイムスタンプ比較を行い、必要に応じてダウンロードする
@@ -75,7 +81,7 @@ function DownloadFromModrinth()
                     echo -n "Check & "
                 fi
                 echo "Download: ${DST}"
-                curl -sRL "${DOWNLOAD_URL}" -o "${DST}" ${OPTS[*]}
+                curl -sSRL "${DOWNLOAD_URL}" -o "${DST}" ${OPTS[*]}
             else
                 echo "${PLUGIN} のダウンロード URL を取得できませんでした。" >&2
             fi
@@ -106,7 +112,7 @@ function DownloadFromSpigot()
             echo -n "Check & "
         fi
         echo "Download: ${DST}"
-        curl -sRL "${DOWNLOAD_URL}" -o "${DST}" ${OPTS[*]}
+        curl -sSRL "${DOWNLOAD_URL}" -o "${DST}" ${OPTS[*]}
     else
         echo "プラグインの URL を取得できませんでした。" >&2
     fi
@@ -179,6 +185,7 @@ mkdir -p "${DEST_DIR}"
 Download "https://github.com/dmulloy2/ProtocolLib/releases/download/dev-build/ProtocolLib.jar" "${DEST_DIR}/ProtocolLib.jar"
 DownloadFromModrinth advanced-portals simplescoreboard multiverse-core
 RemoveOldFiles "${DEST_DIR}" "Advanced-Portals"
+RemoveOldFiles "${DEST_DIR}" "advanced-portals"
 RemoveOldFiles "${DEST_DIR}" "SimpleScoreBoard"
 RemoveOldFiles "${DEST_DIR}" "multiverse-core"
 # https://www.spigotmc.org/resources/placeholderapi.6245/
