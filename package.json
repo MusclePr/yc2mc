@@ -16,7 +16,7 @@
     "@types/node-fetch": "^2.6.13",
     "@types/tmi.js": "^1.8.6",
     "@types/ws": "^8.18.1",
-    "typescript": "^6.0.2"
+    "typescript": "^7.0.2"
   },
   "name": "yc2mc",
   "version": "1.0.0",
