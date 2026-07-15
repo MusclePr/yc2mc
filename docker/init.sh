@@ -265,9 +265,9 @@ checkTools
 docker compose down
 
 #
-# data ディレクトリが１つでも無い場合は、初回セットアップとして作成します。
+# 必須ファイルや data ディレクトリが１つでも無い場合は、初回セットアップとして作成します。
 #
-if [ ! -d proxy/data ] || [ ! -d lobby/data ] || [ ! -d ${SERVER1}/data ]; then
+if [ ! -f proxy/data/forwarding.secret ] || [ ! -d lobby/data ] || [ ! -d ${SERVER1}/data ]; then
     clean # 中途半端な状態を消す
 
     echo "Setting up ..."

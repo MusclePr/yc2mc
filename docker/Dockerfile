@@ -14,9 +14,10 @@ COPY --chown=node:node dist/index.js .
 COPY --chown=node:node src/assets/ ./assets/
 COPY --chown=node:node package.json ./
 COPY --chown=node:node package-lock.json ./
+COPY --chown=node:node scripts/ ./scripts/
 COPY --chown=node:node youtube-chat-2.2.0.tgz ./
-COPY --chown=node:node twitch-chat-v1.0.0.tgz ./
-RUN npm ci --omit=dev
+COPY --chown=node:node twitch-chat-1.0.0.tgz ./
+RUN npm ci --omit=dev && rm -rf ./scripts
 RUN rm -f package.json package-lock.json
 
 COPY --chown=node:node docker/assets/entrypoint.sh .
