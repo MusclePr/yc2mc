@@ -11,10 +11,10 @@
 
 ### 推奨コマンド実行方法
 1. **Dockerコンテナ内でのコマンド実行**: `docker exec -it <container_name> <command>`
-2. **プロジェクトのビルド**: `./build.sh` または `yarn run build`
+2. **プロジェクトのビルド**: `./build.sh` または `npm run build`
 
 ### 注意事項
-- npm は使用しません。yarn を使用してください。
+- 依存管理と実行コマンドは npm のみを使用してください。
 - ユーザー名とパスワードは、docker compose により、.env がプリロードされ、SERVER1_MCUI_USERNAMEとSERVER1_MCUI_PASSWORDの内容を参照しています。
 
 ## プロジェクトの特徴

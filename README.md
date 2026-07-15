@@ -26,10 +26,31 @@ Youtube のライブ配信チャットを Minecraft サーバーのゲーム内�
 
 ## 必要要件
 
-- Docker … コンテナ制御
-- Docker Compose … コンテナ連携制御
+- Docker … コンテナ実行時のみ必要
+- Docker Compose … コンテナ連携実行時のみ必要
 - Node.js v24以上 … JavaScript 実行環境
-  - `nvm install --lts`
+  - `nvm install`
+  - `nvm use`
+
+### 前提条件チェック
+
+```sh
+./scripts/ensure-node-env.sh
+```
+
+Node.js と npm のバージョン要件を満たしていない場合は、実行前にエラーで停止します。
+
+### ローカル安定ビルド（Docker不要）
+
+```sh
+./build.sh
+```
+
+`./build.sh` は以下を自動実行します。
+- Node.js/npm の前提条件チェック
+- `npm ci` による lockfile ベースの再現性ある依存インストール
+- `npm run build` の実行
+
 - Minecraft サーバー (Paper)
   - 必須プラグイン
     - NicknameRequired … サーバーへの接続時に、ニックネームの登録が無ければ、KICKするプラグイン
@@ -42,10 +63,10 @@ Youtube のライブ配信チャットを Minecraft サーバーのゲーム内�
 git clone https://github.com/MusclePr/yc2mc.git
 
 # 依存パッケージをインストール
-yarn install
+npm install
 
 # ビルド
-yarn run build
+npm run build
 
 # Docker 環境の初期化
 cd docker
@@ -77,7 +98,7 @@ Web UI: http://localhost:8080
 ## ビルド＆起動
 
 ```sh
-yarn run start
+npm run start
 ```
 
 ## 作者

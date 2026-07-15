@@ -5,9 +5,9 @@
     "express-basic-auth": "^1.2.1",
     "node-fetch": "^3.3.2",
     "rcon-client": "^4.2.5",
-    "twitch-chat": "file:./twitch-chat-v1.0.0.tgz",
+    "twitch-chat": "file:twitch-chat-1.0.0.tgz",
     "ws": "^8.20.0",
-    "youtube-chat": "file:./youtube-chat-2.2.0.tgz"
+    "youtube-chat": "file:youtube-chat-2.2.0.tgz"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -23,6 +23,9 @@
   "description": "transfer from live streaming chat to minecraft chat",
   "main": "src/index.js",
   "scripts": {
+    "preinstall": "bash ./scripts/ensure-node-env.sh",
+    "prebuild": "bash ./scripts/ensure-node-env.sh",
+    "prestart": "bash ./scripts/ensure-node-env.sh",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "tsc && (cd docker; ./up.sh)",
@@ -30,15 +33,9 @@
   },
   "author": "MusclePr",
   "license": "MIT",
-  "packageManager": "yarn@1.22.22",
   "engines": {
     "node": ">=24.14.1",
-    "yarn": ">=1.22.0",
-    "npm": "please-use-yarn"
+    "npm": ">=10.0.0"
   },
-  "engineStrict": true,
-  "preferGlobal": false,
-  "workspaces": {
-    "nohoist": []
-  }
+  "preferGlobal": false
 }

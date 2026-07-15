@@ -2,8 +2,6 @@ dist
 node_modules
 .vscode
 *error.log
-package-lock.json
-yarn.lock
 docker/proxy
 docker/lobby
 docker/server
