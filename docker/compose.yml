@@ -19,7 +19,7 @@ services:
   # プロキシーサーバー
   mc-proxy:
     container_name: mc-proxy
-    image: ghcr.io/musclepr/mc-proxy
+    image: ghcr.io/musclepr/mc-proxy:java25
     ports:
       - 25565:25577
       - 19132:19132/udp

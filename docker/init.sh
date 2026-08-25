@@ -58,18 +58,23 @@ function Proxy_updateConfig()
 {
     local -r CONFIG="proxy/data/velocity.toml"
 
+    echo "update ... <${CONFIG}>"
+
     # 最新の初期状態に戻す場合
-    #curl -sLo "${CONFIG}" "https://github.com/PaperMC/Velocity/raw/refs/heads/dev/3.0.0/proxy/src/main/resources/default-velocity.toml"
+    #curl -sLo "${CONFIG}" "https://github.com/PaperMC/Velocity/raw/refs/heads/dev/4.0.0/proxy/src/main/resources/default-velocity.toml"
 
     # player-info-forwarding-mode を "modern" に変更
     sed -i -E 's/^(player-info-forwarding-mode\s*=\s*).*$/\1"modern"/' "${CONFIG}"
+    grep '^player-info-forwarding-mode' "${CONFIG}"
 
     # いらないサーバーの削除
-    sed -i -E '/^(factions|minigames)\s*=/d' "${CONFIG}"
-    sed -i -E '/^"(factions|minigames)\.example\.com"/,/\]/d' "${CONFIG}"
+    sed -i -E '/(factions|minigames)/d' "${CONFIG}"
 
     # [servers] セクションの変更
-    sed -i -E "s/^lobby = \"127.*/lobby = \"mc-lobby\"\n${SERVER1} = \"mc-${SERVER1}\"/" "${CONFIG}"
+    sed -i -E "s/^(\tlobby = )\"127.*/\\1\"mc-lobby\"\n\t${SERVER1} = \"mc-${SERVER1}\"/" "${CONFIG}"
+
+    # [servers]から[advanced]までの間の行を表示する。
+    sed -n '/^\[servers\]/,/^\[advanced\]/p' "${CONFIG}"
 }
 
 # コンテナの状態を取得するヘルパー関数
@@ -101,6 +106,7 @@ function Docker_waitFullStatus()
         local CURRENT_TIME=$(date +%s)
         if [ ${CURRENT_TIME} -ge ${END_TIME} ]; then
             echo "Container ${CONTAINER_NAME} is not ${TARGET_STATUS} after ${TIMEOUT} seconds."
+            docker logs ${CONTAINER_NAME}
             #return 1
             exit 1 # force exit
         fi
@@ -287,23 +293,26 @@ if [ ! -f proxy/data/forwarding.secret ] || [ ! -d lobby/data ] || [ ! -d ${SERV
     docker compose start mc-proxy mc-lobby mc-server1
 
     # mc-proxy の起動完了待ち（設定ファイルの生成完了待ち）
-    echo "waiting healthy for mc-proxy"
+    echo "mc-proxy の起動完了待ち（設定ファイルの生成完了待ち）"
     Docker_waitFullStatus mc-proxy "running healthy"
 
     # mc-lobby の起動完了待ち（設定ファイルの生成完了待ち）
-    echo "waiting healthy for mc-lobby"
+    echo "mc-lobby の起動完了待ち（設定ファイルの生成完了待ち）"
     Docker_waitFullStatus mc-lobby "running healthy"
     # mc-lobby の PlaceholderAPI に追加の Expansion をダウンロードします。
-    docker exec -it mc-lobby rcon-cli papi ecloud download Player
-    sleep 1
+    echo "PlaceholderAPI expansion String のダウンロード"
     docker exec -it mc-lobby rcon-cli papi ecloud download String
     sleep 1
+    echo "PlaceholderAPI expansion Player のダウンロード"
+    docker exec -it mc-lobby rcon-cli papi ecloud download Player
+    sleep 1
     if [ -n "${OP_USER}" ]; then
+        echo "OP user ${OP_USER} を mc-lobby に追加"
         docker exec -it mc-lobby rcon-cli op ${OP_USER}
     fi
 
     # mc-server1 の起動完了待ち（設定ファイルの生成完了待ち）
-    echo "waiting mc-${SERVER1} for mc-server1"
+    echo "mc-server1 の起動完了待ち（設定ファイルの生成完了待ち）"
     Docker_waitFullStatus mc-${SERVER1} "running healthy"
     if [ -n "${OP_USER}" ]; then
         docker exec -it mc-${SERVER1} rcon-cli op ${OP_USER}
