@@ -6,7 +6,7 @@
     "node-fetch": "^3.3.2",
     "rcon-client": "^4.2.5",
     "twitch-chat": "file:twitch-chat-1.0.0.tgz",
-    "ws": "^8.21.3",
+    "ws": "^8.22.0",
     "youtube-chat": "file:youtube-chat-2.2.0.tgz"
   },
   "devDependencies": {
@@ -15,7 +15,7 @@
     "@types/node": "^26.6.3",
     "@types/node-fetch": "^2.6.13",
     "@types/tmi.js": "^1.8.6",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "typescript": "^7.0.2"
   },
   "name": "yc2mc",
