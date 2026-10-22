@@ -74,7 +74,7 @@ services:
   # 配信支援サービス
   mc-server1-live:
     container_name: mc-${SERVER1}-live
-    image: MusclePr/yc2mc:latest
+    image: ghcr.io/musclepr/yc2mc:latest
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./${SERVER1}/data:/data:ro"
@@ -99,7 +99,7 @@ services:
   
   mc-server1-ui:
     container_name: mc-${SERVER1}-ui
-    image: MusclePr/mcui
+    image: ghcr.io/musclepr/mcui:latest
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./${SERVER1}/data:/data"
